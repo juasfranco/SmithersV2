@@ -2,7 +2,8 @@ const axios = require("axios");
 require("dotenv").config();
 
 async function sendMessageToGuest(reservationId, message) {
-  await axios.post(
+   console.log(`📬 (Simulado) Enviando mensaje a reserva ${reservationId}:`, message);
+  /*await axios.post(
     "https://api.hostaway.com/v1/messages",
     {
       reservationId,
@@ -14,7 +15,7 @@ async function sendMessageToGuest(reservationId, message) {
         "Content-Type": "application/json"
       }
     }
-  );
+  );*/
 }
 
 module.exports = { sendMessageToGuest };

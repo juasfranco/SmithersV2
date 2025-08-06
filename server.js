@@ -8,6 +8,8 @@ const { getConversationHistory, saveMessage } = require("./services/conversation
 const { askGpt } = require("./services/gptService");
 const { buildPrompt } = require("./utils/promptBuilder");
 const { sendMessageToGuest } = require("./services/hostawayService");
+const { getListingById } = require("./services/hostawayListingService");
+
 
 const app = express();
 app.use(bodyParser.json());
@@ -21,11 +23,13 @@ app.post("/webhooks/hostaway", async (req, res) => {
   const { event, data } = req.body;
   if (event !== "messageCreated") return res.sendStatus(200);
 
-  const { guestId, message, reservationId } = data;
+  const { guestId, message, reservationId, listingId } = data;
 
   const faqs = await getAllFaqs();
   const history = await getConversationHistory(guestId);
-  const prompt = buildPrompt({ faqs, history, guestQuestion: message });
+  const listingInfo = await getListingById(listingId); // <-- clave aquí
+
+  const prompt = buildPrompt({ faqs, history, guestQuestion: message, listingInfo });
   const response = await askGpt(prompt);
 
   await sendMessageToGuest(reservationId, response);
@@ -36,5 +40,5 @@ app.post("/webhooks/hostaway", async (req, res) => {
 });
 
 app.listen(process.env.PORT, () => {
-  console.log(`🚀 Webhook activo en puerto ${process.env.PORT}`);
+  console.log(`🚀 Webhook active on port: ${process.env.PORT}`);
 });

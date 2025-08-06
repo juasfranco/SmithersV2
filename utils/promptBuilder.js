@@ -1,25 +1,25 @@
-function buildPrompt({ faqs, history, guestQuestion }) {
-  const faqContext = faqs.map(f => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n");
-
-  const historyContext = history
-    .map(msg => `${msg.role === "guest" ? "Huésped" : "Agente"}: ${msg.content}`)
-    .join("\n");
+function buildPrompt({ faqs, history, guestQuestion, listingInfo = null }) {
+  const faqText = faqs.map(f => `Q: ${f.question}\nA: ${f.answer}`).join("\n");
+  const historyText = history.map(m => `${m.sender}: ${m.message}`).join("\n");
+  const listingText = listingInfo
+    ? `Property Information:\n${Object.entries(listingInfo).map(([k, v]) => `${k}: ${v}`).join("\n")}`
+    : "";
 
   return `
-Estás actuando como un asistente virtual profesional para propiedades de Airbnb.
+You are a helpful AI assistant for a short-term rental company.
+Answer the guest's question based on the FAQs, conversation history, and property info.
 
-FAQs disponibles:
-${faqContext || "No hay FAQs definidas."}
+FAQs:
+${faqText}
 
-Historial reciente con este huésped:
-${historyContext || "No hay conversaciones previas."}
+Conversation History:
+${historyText}
 
-Nueva pregunta del huésped:
+${listingText}
+
+Guest's question:
 ${guestQuestion}
-
-Tu respuesta debe ser clara, profesional, en el mismo idioma que la pregunta, y útil.
-Si ya se respondió anteriormente, recuérdalo con amabilidad.
 `;
 }
-
 module.exports = { buildPrompt };
+
