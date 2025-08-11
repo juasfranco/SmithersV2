@@ -3,19 +3,14 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 
-const { getAllFaqs } = require("./services/faqService");
-const { getConversationHistory, saveMessage } = require("./services/conversationService");
-const { askGpt } = require("./services/gptService");
-const { buildPrompt } = require("./utils/promptBuilder");
+const { getAgentResponse } = require("./services/conversationService");
 const { sendMessageToGuest } = require("./services/hostawayService");
-const { getListingById } = require("./services/hostawayListingService");
-
 
 const app = express();
 app.use(bodyParser.json());
 
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ Conectado a MongoDB"))
+  .then(() => console.log("✅ Conectado a MongoDB, 🔗 Conectado a: ", mongoose.connection.name))
   .catch(err => console.error("❌ Error MongoDB:", err));
 
 // Webhook endpoint
@@ -23,18 +18,18 @@ app.post("/webhooks/hostaway", async (req, res) => {
   const { event, data } = req.body;
   if (event !== "messageCreated") return res.sendStatus(200);
 
-  const { guestId, message, reservationId, listingId } = data;
+  const guestId = data.guestId;
+  const message = data.message;
+  const reservationId = data.reservationId;
+  const listingMapId = Number(data.ListingMapId);
 
-  const faqs = await getAllFaqs();
-  const history = await getConversationHistory(guestId);
-  const listingInfo = await getListingById(listingId); // <-- clave aquí
 
-  const prompt = buildPrompt({ faqs, history, guestQuestion: message, listingInfo });
-  const response = await askGpt(prompt);
+  console.log("📌 Listing ID recibido:", listingMapId);
+
+  // 🔹 Usamos el nuevo flujo inteligente
+  const response = await getAgentResponse(message, listingMapId);
 
   await sendMessageToGuest(reservationId, response);
-  await saveMessage(guestId, "guest", message);
-  await saveMessage(guestId, "agent", response);
 
   res.sendStatus(200);
 });

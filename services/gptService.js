@@ -1,15 +1,16 @@
 const { OpenAI } = require("openai");
-require("dotenv").config();
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
-async function askGpt(fullPrompt) {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [{ role: "user", content: fullPrompt }],
+async function ask(prompt) {
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.4
   });
-
-  return response.choices[0].message.content.trim();
+  return completion.choices[0].message.content;
 }
 
-module.exports = { askGpt };
+module.exports = { ask };

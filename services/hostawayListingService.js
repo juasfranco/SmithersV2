@@ -1,11 +1,33 @@
-const HostawayListing = require("../models/HostawayListing");
+// services/HostawayListingsService.js
+const mongoose = require("mongoose");
+const HostawayListings = require("../models/HostAwayListings");
 
-async function getAllListings() {
-  return await HostawayListing.find({});
+async function getListingByMapId(listingMapId) {
+  if (!listingMapId) return null;
+
+  try {
+    // Forzar conversión a número si es numérico
+    const idNum = Number(listingMapId);
+
+    // Intentar búsqueda como número primero
+    let listing = await HostawayListings.findOne({ ListingMapId: idNum }).lean();
+
+    // Si no se encuentra como número, probar como string
+    if (!listing) {
+      listing = await HostawayListings.findOne({ ListingMapId: String(listingMapId) }).lean();
+    }
+
+    if (listing) {
+      console.log("✅ Listing encontrado:", listing._id);
+      return listing;
+    }
+
+    console.log("❌ No se encontró listing con ListingMapId:", listingMapId);
+    return null;
+  } catch (err) {
+    console.error("⚠️ Error buscando listing por ListingMapId:", err.message);
+    return null;
+  }
 }
 
-async function getListingById(id) {
-  return await HostawayListing.findById(id);
-}
-
-module.exports = { getAllListings, getListingById };
+module.exports = { getListingByMapId };

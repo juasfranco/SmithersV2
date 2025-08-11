@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const faqSchema = new mongoose.Schema({
+const FaqsSchema = new mongoose.Schema({
   _id: Number,
   question: String,
   answer: String,
@@ -10,4 +10,4 @@ const faqSchema = new mongoose.Schema({
   updatedAt: Date
 });
 
-module.exports = mongoose.model("Faq", faqSchema);
+module.exports = mongoose.model("Faqs", FaqsSchema, "Faqs");
