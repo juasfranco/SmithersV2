@@ -1,7 +1,7 @@
 // services/conversationService.js
 const { searchFAQ } = require("./faqService");
 const { getListingByMapId } = require("./hostawayListingService");
-const { ask } = require("./gptService");
+const { ask, getFriendlyResponse } = require("./gptService");
 
 function normalizeKey(key) {
   return String(key || "")
@@ -25,22 +25,46 @@ function findMatchingField(flatData, detectedField, userQuestion) {
   if (!flatData) return null;
   const normalizedDetected = normalizeKey(detectedField);
   const detectedTokens = tokensFromText(detectedField);
+  const qTokens = tokensFromText(userQuestion);
 
+  // 1️⃣ Coincidencia exacta de clave normalizada
   for (const origKey of Object.keys(flatData)) {
     if (normalizeKey(origKey) === normalizedDetected) {
       return { key: origKey, value: flatData[origKey] };
     }
   }
 
+  // 2️⃣ Coincidencia parcial: buscar todas las que encajen
+  let partialMatches = [];
   if (detectedTokens.length > 0) {
     for (const origKey of Object.keys(flatData)) {
       const nk = normalizeKey(origKey);
       const allMatch = detectedTokens.every(t => nk.includes(t));
-      if (allMatch) return { key: origKey, value: flatData[origKey] };
+      if (allMatch) partialMatches.push(origKey);
     }
   }
 
-  const qTokens = tokensFromText(userQuestion);
+  // Si hay varias coincidencias parciales, aplicar reglas
+  if (partialMatches.length > 0) {
+    // Si la pregunta menciona start/begin → priorizar Start
+    if (qTokens.some(t => ["start", "begin", "from"].includes(t.toLowerCase()))) {
+      const startKey = partialMatches.find(k => /start/i.test(k));
+      if (startKey) return { key: startKey, value: flatData[startKey] };
+    }
+    // Si la pregunta menciona end/late → priorizar End
+    if (qTokens.some(t => ["end", "late", "until"].includes(t.toLowerCase()))) {
+      const endKey = partialMatches.find(k => /end/i.test(k));
+      if (endKey) return { key: endKey, value: flatData[endKey] };
+    }
+    // Si no hay pistas, priorizar Start sobre End
+    const startKey = partialMatches.find(k => /start/i.test(k));
+    if (startKey) return { key: startKey, value: flatData[startKey] };
+
+    // Si no hay Start, devolver el primero encontrado
+    return { key: partialMatches[0], value: flatData[partialMatches[0]] };
+  }
+
+  // 3️⃣ Buscar coincidencia por valor
   if (qTokens.length > 0) {
     for (const origKey of Object.keys(flatData)) {
       const val = flatData[origKey];
@@ -55,6 +79,7 @@ function findMatchingField(flatData, detectedField, userQuestion) {
 
   return null;
 }
+
 
 function friendlyFieldName(detectedField, origKey) {
   const nk = normalizeKey(detectedField || origKey || "");
@@ -100,7 +125,11 @@ Si no puedes identificar un campo, responde "unknown".
 
       const friendly = friendlyFieldName(detectedField, match.key);
       console.log("✅ Match en HostawayListing:", match.key, "=>", valueStr);
-      return `${friendly.charAt(0).toUpperCase() + friendly.slice(1)}: ${valueStr}`;
+
+      // 📌 Pasamos el mensaje por GPT para hacerlo amigable
+      const friendlyMessage = await getFriendlyResponse(userQuestion, `${friendly}: ${valueStr}`);
+      return friendlyMessage;
+
     } else {
       console.log("ℹ️ No se encontró campo coincidente en listing. Keys disponibles:", Object.keys(listing).slice(0, 40));
     }
@@ -111,7 +140,7 @@ Si no puedes identificar un campo, responde "unknown".
   const faqAnswer = await searchFAQ(userQuestion);
   if (faqAnswer) {
     console.log("📚 Respuesta tomada de FAQs");
-    return faqAnswer;
+    return await getFriendlyResponse(faqAnswer); // 👈 también pasamos por GPT
   }
 
   console.log("🚨 No encontrado en HostAwaylisting collection ni FAQs collection. Usando GPT como fallback.");
@@ -121,8 +150,8 @@ Pregunta: "${userQuestion}"
 No existe la información en la base de datos ni en las FAQs.
 Responde lo mejor posible usando conocimiento general.
 `;
-  return await ask(fallbackPrompt);
+  const gptAnswer = await ask(fallbackPrompt);
+  return await getFriendlyResponse(gptAnswer); // 👈 y aquí también
 }
-
 
 module.exports = { getAgentResponse };
