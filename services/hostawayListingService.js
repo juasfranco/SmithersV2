@@ -1,4 +1,3 @@
-// services/HostawayListingsService.js
 const mongoose = require("mongoose");
 const HostawayListings = require("../models/HostAwayListings");
 
