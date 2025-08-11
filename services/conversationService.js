@@ -140,7 +140,7 @@ Si no puedes identificar un campo, responde "unknown".
   const faqAnswer = await searchFAQ(userQuestion);
   if (faqAnswer) {
     console.log("📚 Respuesta tomada de FAQs");
-    return await getFriendlyResponse(faqAnswer); // 👈 también pasamos por GPT
+    return await getFriendlyResponse(faqAnswer);
   }
 
   console.log("🚨 No encontrado en HostAwaylisting collection ni FAQs collection. Usando GPT como fallback.");
@@ -151,7 +151,7 @@ No existe la información en la base de datos ni en las FAQs.
 Responde lo mejor posible usando conocimiento general.
 `;
   const gptAnswer = await ask(fallbackPrompt);
-  return await getFriendlyResponse(gptAnswer); // 👈 y aquí también
+  return await getFriendlyResponse(gptAnswer);
 }
 
 module.exports = { getAgentResponse };
