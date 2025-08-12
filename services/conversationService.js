@@ -1,7 +1,10 @@
-// services/conversationService.js
+// services/conversationService.js - VERSIÓN MEJORADA
 const { searchFAQ } = require("./faqService");
 const { getListingByMapId } = require("./hostawayListingService");
 const { ask, getFriendlyResponse } = require("./gptService");
+const { saveConversation, getConversationHistory } = require("./conversationHistoryService");
+const { notifySupport } = require("./supportNotificationService");
+const Conversation = require("../models/conversation");
 
 function normalizeKey(key) {
   return String(key || "")
@@ -80,7 +83,6 @@ function findMatchingField(flatData, detectedField, userQuestion) {
   return null;
 }
 
-
 function friendlyFieldName(detectedField, origKey) {
   const nk = normalizeKey(detectedField || origKey || "");
   const map = {
@@ -99,59 +101,126 @@ function friendlyFieldName(detectedField, origKey) {
   return (detectedField || origKey || "").toString();
 }
 
-async function getAgentResponse(userQuestion, listingMapId) {
-  console.log(`💬 Pregunta recibida: "${userQuestion}" (listingMapId: ${listingMapId})`);
+async function getAgentResponse(userQuestion, listingMapId, guestId, reservationId) {
+  console.log(`💬 Pregunta recibida: "${userQuestion}" (listingMapId: ${listingMapId}, guestId: ${guestId})`);
 
-  const fieldDetectionPrompt = `
-El usuario pregunta: "${userQuestion}"
+  try {
+    // 🔹 NUEVO: Obtener historial de conversación para contexto
+    const conversationHistory = await getConversationHistory(guestId);
+
+    // 🔹 NUEVO: Guardar mensaje del huésped
+    await saveConversation(guestId, "guest", userQuestion);
+
+    // Generar prompt con contexto histórico
+    const contextPrompt = conversationHistory.length > 0
+      ? `Historial de conversación reciente:\n${conversationHistory.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nPregunta actual: "${userQuestion}"`
+      : `Pregunta: "${userQuestion}"`;
+
+    const fieldDetectionPrompt = `
+Contexto de conversación:
+${contextPrompt}
+
+Identifica el campo específico que el usuario está preguntando.
 Devuelve SOLO el nombre del campo en inglés tal como se usaría en la base de datos (ej: checkOutTime, checkInTime, wifi, parking, address).
-Si no puedes identificar un campo, responde "unknown".
-`;
-  let detectedField = (await ask(fieldDetectionPrompt)).trim();
-  detectedField = detectedField.split(/[\n,.;:]/)[0].trim();
-  console.log("🧠 Campo detectado (raw):", detectedField);
+Si no puedes identificar un campo específico, responde "unknown".
+    `;
 
-  const listing = await getListingByMapId(listingMapId);
-  if (listing) {
-    console.log("🏠 Listing encontrado; buscando campo...");
-    const match = findMatchingField(listing, detectedField, userQuestion);
-    if (match) {
-      let rawValue = match.value;
-      let valueStr;
-      if (rawValue === null || rawValue === undefined) valueStr = String(rawValue);
-      else if (typeof rawValue === "object") {
-        try { valueStr = JSON.stringify(rawValue); } catch { valueStr = String(rawValue); }
-      } else valueStr = String(rawValue);
+    let detectedField = (await ask(fieldDetectionPrompt)).trim();
+    detectedField = detectedField.split(/[\n,.;:]/)[0].trim();
+    console.log("🧠 Campo detectado (con contexto):", detectedField);
 
-      const friendly = friendlyFieldName(detectedField, match.key);
-      console.log("✅ Match en HostawayListing:", match.key, "=>", valueStr);
+    // Buscar información en el listing
+    const listing = await getListingByMapId(listingMapId);
+    let response = null;
+    let responseSource = "unknown";
 
-      // 📌 Pasamos el mensaje por GPT para hacerlo amigable
-      const friendlyMessage = await getFriendlyResponse(userQuestion, `${friendly}: ${valueStr}`);
-      return friendlyMessage;
+    if (listing) {
+      console.log("🏠 Listing encontrado; buscando campo...");
+      const match = findMatchingField(listing, detectedField, userQuestion);
+      if (match) {
+        let rawValue = match.value;
+        let valueStr;
+        if (rawValue === null || rawValue === undefined) valueStr = String(rawValue);
+        else if (typeof rawValue === "object") {
+          try { valueStr = JSON.stringify(rawValue); } catch { valueStr = String(rawValue); }
+        } else valueStr = String(rawValue);
 
-    } else {
-      console.log("ℹ️ No se encontró campo coincidente en listing. Keys disponibles:", Object.keys(listing).slice(0, 40));
+        const friendly = friendlyFieldName(detectedField, match.key);
+        console.log("✅ Match en HostawayListing:", match.key, "=>", valueStr);
+
+        // 📌 Usar contexto para respuesta más personalizada
+        const contextualPrompt = conversationHistory.length > 0
+          ? `Basado en nuestra conversación previa y tu pregunta sobre "${userQuestion}", la información es: ${friendly}: ${valueStr}`
+          : `${friendly}: ${valueStr}`;
+
+        response = await getFriendlyResponse(userQuestion, contextualPrompt);
+        responseSource = "listing";
+      }
     }
-  } else {
-    console.log("⚠️ Listing no encontrado con id:", listingMapId);
-  }
 
-  const faqAnswer = await searchFAQ(userQuestion);
-  if (faqAnswer) {
-    console.log("📚 Respuesta tomada de FAQs");
-    return await getFriendlyResponse(faqAnswer);
-  }
+    // Si no se encontró en listing, buscar en FAQs
+    if (!response) {
+      const faqAnswer = await searchFAQ(userQuestion, conversationHistory);
+      if (faqAnswer) {
+        console.log("📚 Respuesta tomada de FAQs");
+        response = await getFriendlyResponse(userQuestion, faqAnswer);
+        responseSource = "faq";
+      }
+    }
 
-  console.log("🚨 No encontrado en HostAwaylisting collection ni FAQs collection. Usando GPT como fallback.");
-  const fallbackPrompt = `
-Eres un asistente amable y puntual.
-Pregunta: "${userQuestion}"
-No existe la información en la base de datos ni en las FAQs.
-Responde lo mejor posible usando conocimiento general.
-`;
-  const gptAnswer = await ask(fallbackPrompt);
-  return await getFriendlyResponse(gptAnswer);
+    // Si no se encontró respuesta, usar fallback con contexto
+    if (!response) {
+      console.log("🚨 No encontrado en ninguna fuente. Usando GPT como fallback.");
+
+      const fallbackPrompt = `
+Eres un asistente amable y profesional para huéspedes de alojamientos.
+${conversationHistory.length > 0 ? `Contexto de conversación previa:\n${conversationHistory.slice(-3).map(m => `${m.role}: ${m.content}`).join('\n')}\n` : ''}
+Pregunta actual: "${userQuestion}"
+
+No tienes información específica sobre este tema en la base de datos.
+Responde de manera útil pero indica que necesitas verificar la información o que el huésped puede contactar directamente al anfitrión.
+Mantén un tono cordial y profesional.
+      `;
+
+      response = await ask(fallbackPrompt);
+      responseSource = "fallback";
+
+      // 🔹 NUEVO: Notificar a soporte cuando se usa fallback
+      await notifySupport({
+        guestId,
+        reservationId,
+        listingMapId,
+        question: userQuestion,
+        response,
+        reason: "No se encontró respuesta en la base de datos"
+      });
+    }
+
+    // 🔹 NUEVO: Guardar respuesta del agente
+    await saveConversation(guestId, "agent", response, {
+      source: responseSource,
+      detectedField,
+      listingMapId
+    });
+
+    console.log(`✅ Respuesta generada (fuente: ${responseSource}):`, response);
+    return response;
+
+  } catch (error) {
+    console.error("❌ Error en getAgentResponse:", error);
+
+    // 🔹 NUEVO: Notificar error crítico a soporte
+    await notifySupport({
+      guestId,
+      reservationId,
+      listingMapId,
+      question: userQuestion,
+      error: error.message,
+      reason: "Error técnico en el agente"
+    });
+
+    return "Disculpa, estoy experimentando dificultades técnicas. Un miembro de nuestro equipo te contactará pronto para ayudarte.";
+  }
 }
 
 module.exports = { getAgentResponse };

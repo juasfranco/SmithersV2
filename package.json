@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "migrate": "node scripts/safeMigration.js migrate",
+    "rollback": "node scripts/safeMigration.js rollback",
+    "test-migration": "node scripts/safeMigration.js test"
   },
   "keywords": [],
   "author": "",
