@@ -319,6 +319,36 @@ app.get("/health", async (req, res) => {
   }
 });
 
+// Endpoint de debug temporal
+app.get("/debug/conversations", async (req, res) => {
+  try {
+    const { debugConversations } = require("./services/conversationHistoryService");
+    const debug = await debugConversations();
+    
+    res.json({
+      debug,
+      mongoStatus: mongoose.connection.readyState,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint para probar guardado directo
+app.post("/debug/test-save", async (req, res) => {
+  try {
+    const { saveConversation } = require("./services/conversationHistoryService");
+    
+    await saveConversation("debug-guest-123", "guest", "Mensaje de prueba desde debug");
+    await saveConversation("debug-guest-123", "agent", "Respuesta de prueba desde debug");
+    
+    res.json({ success: true, message: "Prueba de guardado completada" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Middleware de manejo de errores global
 app.use((error, req, res, next) => {
   console.error("❌ Error no manejado:", error);
