@@ -1,13 +1,13 @@
-// server.js - SERVIDOR ACTUALIZADO
+// server.js - SERVIDOR ACTUALIZADO CON INTEGRACIÓN HOSTAWAY COMPLETA
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 
-const { getAgentResponse } = require("./services/conversationService");
-const { sendMessageToGuest } = require("./services/hostawayService");
+const { handleHostawayWebhook } = require("./services/enhancedWebhookHandler");
 const { analyzeConversationPatterns } = require("./services/conversationHistoryService");
 const { learnFromHistory } = require("./services/faqService");
+const { hostawayService } = require("./services/hostawayService");
 
 const app = express();
 app.use(bodyParser.json());
@@ -34,103 +34,107 @@ mongoose.connect(process.env.MONGODB_URI)
   })
   .catch(err => console.error("❌ Error MongoDB:", err));
 
-// Webhook endpoint mejorado
+// 🔹 WEBHOOK PRINCIPAL MEJORADO CON HOSTAWAY API
 app.post("/webhooks/hostaway", async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { event, data } = req.body;
-    
-    // Log detallado del webhook recibido
-    console.log("📥 Webhook recibido:", {
-      event,
+    console.log("📥 Webhook de Hostaway recibido:", {
       timestamp: new Date().toISOString(),
-      guestId: data?.guestId,
-      reservationId: data?.reservationId
+      headers: req.headers,
+      body: req.body
     });
 
-    if (event !== "messageCreated") {
-      console.log("ℹ️ Evento ignorado:", event);
-      return res.sendStatus(200);
+    // 🔹 DETECTAR FORMATO DE WEBHOOK
+    let event, data;
+    
+    // Formato nuevo de Hostaway (unified webhooks)
+    if (req.body.event && req.body.data) {
+      event = req.body.event;
+      data = req.body.data;
     }
-
-    const guestId = data.guestId;
-    const message = data.message;
-    const reservationId = data.reservationId;
-    const listingMapId = Number(data.ListingMapId);
-
-    // Validación de datos requeridos
-    if (!guestId || !message || !reservationId) {
-      console.error("❌ Datos faltantes en el webhook:", { guestId, message, reservationId });
-      return res.status(400).json({ error: "Datos faltantes" });
+    // Formato anterior (compatibilidad)
+    else if (req.body.event && req.body.reservationId) {
+      event = req.body.event === 'messageCreated' ? 'new message received' : req.body.event;
+      data = {
+        reservationId: req.body.reservationId,
+        conversationId: req.body.conversationId,
+        messageId: req.body.messageId,
+        message: req.body.message,
+        messageType: req.body.messageType,
+        guestId: req.body.guestId,
+        listingMapId: req.body.ListingMapId
+      };
     }
-
-    console.log("📌 Procesando mensaje:", {
-      guestId,
-      message: message.substring(0, 100) + (message.length > 100 ? "..." : ""),
-      listingMapId
-    });
-
-    // 🔹 Analizar patrones de conversación antes de responder
-    const patterns = await analyzeConversationPatterns(guestId);
-    if (patterns?.needsHumanSupport) {
-      console.log("🚨 Huésped necesita soporte humano - notificando...");
-      const { notifySupport } = require("./services/supportNotificationService");
-      await notifySupport({
-        guestId,
-        reservationId,
-        listingMapId,
-        question: message,
-        reason: "Múltiples consultas sin resolución satisfactoria"
+    // Formato personalizado actual
+    else if (req.body.data) {
+      event = 'new message received';
+      data = {
+        reservationId: req.body.data.reservationId,
+        conversationId: req.body.data.conversationId,
+        message: req.body.data.message,
+        guestId: req.body.data.guestId,
+        listingMapId: req.body.data.ListingMapId
+      };
+    } else {
+      return res.status(400).json({ 
+        error: "Formato de webhook no reconocido",
+        receivedKeys: Object.keys(req.body)
       });
     }
 
-    // 🔹 Generar respuesta con contexto mejorado
-    const response = await getAgentResponse(message, listingMapId, guestId, reservationId);
+    console.log("🔍 Evento procesando:", event);
+    console.log("📊 Datos extraídos:", {
+      reservationId: data.reservationId,
+      conversationId: data.conversationId,
+      messagePreview: data.message?.substring(0, 50)
+    });
 
-    // 🔹 Enviar respuesta al huésped
-    await sendMessageToGuest(reservationId, response);
+    // 🔹 PROCESAR CON EL MANEJADOR MEJORADO
+    const result = await handleHostawayWebhook(event, data);
 
     const processingTime = Date.now() - startTime;
-    console.log(`✅ Mensaje procesado exitosamente en ${processingTime}ms`);
+    console.log(`✅ Webhook procesado exitosamente en ${processingTime}ms`);
 
     res.json({
       success: true,
+      event,
       processingTime,
-      guestId,
-      reservationId
+      result
     });
 
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error("❌ Error procesando webhook:", error);
+    console.error("❌ Error procesando webhook de Hostaway:", error);
     
-    // Notificar error crítico
-    try {
-      const { notifySupport } = require("./services/supportNotificationService");
-      await notifySupport({
-        guestId: req.body?.data?.guestId || "unknown",
-        reservationId: req.body?.data?.reservationId || "unknown",
-        listingMapId: req.body?.data?.ListingMapId || 0,
-        question: req.body?.data?.message || "Error en procesamiento",
-        error: error.message,
-        reason: "Error crítico en webhook"
-      });
-    } catch (notificationError) {
-      console.error("❌ Error adicional notificando soporte:", notificationError);
-    }
-
     res.status(500).json({
       success: false,
-      error: "Error interno del servidor",
-      processingTime
+      error: error.message,
+      processingTime,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
-// 🔹 NUEVOS ENDPOINTS PARA ADMINISTRACIÓN
+// 🔹 WEBHOOK PARA PRUEBAS LOCALES (mantienes tu formato actual)
+app.post("/webhooks/hostaway/local", async (req, res) => {
+  try {
+    console.log("🧪 Webhook de prueba local recibido");
+    
+    const { event, data } = req.body;
+    const result = await handleHostawayWebhook(event || 'new message received', data);
+    
+    res.json({ success: true, result });
+    
+  } catch (error) {
+    console.error("❌ Error en webhook local:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-// Endpoint para obtener estadísticas del agente
+// 🔹 NUEVOS ENDPOINTS PARA ADMINISTRACIÓN CON HOSTAWAY
+
+// Endpoint para obtener estadísticas del agente con datos de Hostaway
 app.get("/admin/stats", async (req, res) => {
   try {
     const Conversation = require("./models/conversation");
@@ -162,6 +166,11 @@ app.get("/admin/stats", async (req, res) => {
       // Conversaciones activas en las últimas 24 horas
       Conversation.countDocuments({
         lastActivity: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      }),
+      
+      // Conversaciones con datos de Hostaway
+      Conversation.countDocuments({
+        "messages.metadata.hostaway": true
       })
     ]);
 
@@ -171,12 +180,167 @@ app.get("/admin/stats", async (req, res) => {
       openTickets: stats[2],
       ticketsByPriority: stats[3],
       activeConversations24h: stats[4],
+      hostawayIntegratedConversations: stats[5],
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error("❌ Error obteniendo estadísticas:", error);
     res.status(500).json({ error: "Error obteniendo estadísticas" });
+  }
+});
+
+// 🔹 NUEVO: Endpoint para obtener datos de reserva desde Hostaway
+app.get("/admin/hostaway/reservation/:reservationId", async (req, res) => {
+  try {
+    const { reservationId } = req.params;
+    
+    console.log(`🔍 Buscando reserva ${reservationId} en Hostaway...`);
+    const reservation = await hostawayService.getReservationById(reservationId);
+    
+    if (!reservation) {
+      return res.status(404).json({ error: "Reserva no encontrada" });
+    }
+
+    res.json({
+      success: true,
+      reservation: {
+        id: reservation.id,
+        listingMapId: reservation.listingMapId,
+        guestName: reservation.guestName,
+        guestEmail: reservation.guestEmail,
+        checkIn: reservation.arrivalDate,
+        checkOut: reservation.departureDate,
+        status: reservation.status,
+        totalPrice: reservation.totalPrice,
+        currency: reservation.currencyCode,
+        source: reservation.channelName
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error obteniendo reserva:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔹 NUEVO: Endpoint para obtener conversación desde Hostaway
+app.get("/admin/hostaway/conversation/:conversationId", async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    
+    console.log(`💬 Buscando conversación ${conversationId} en Hostaway...`);
+    const conversation = await hostawayService.getConversationById(conversationId);
+    const messages = await hostawayService.getConversationMessages(conversationId, 20);
+    
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversación no encontrada" });
+    }
+
+    res.json({
+      success: true,
+      conversation: {
+        id: conversation.id,
+        reservationId: conversation.reservationId,
+        totalMessages: messages.length,
+        messages: messages.map(msg => ({
+          id: msg.id,
+          type: msg.type,
+          message: msg.message,
+          sentAt: msg.insertedOn,
+          isFromGuest: msg.type === 'inquiry'
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error obteniendo conversación:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔹 NUEVO: Endpoint para obtener contexto completo
+app.get("/admin/hostaway/context/:reservationId", async (req, res) => {
+  try {
+    const { reservationId } = req.params;
+    const { conversationId } = req.query;
+    
+    console.log(`📊 Obteniendo contexto completo para reserva ${reservationId}...`);
+    const { getCompleteContext } = require("./services/hostawayService");
+    const context = await getCompleteContext(reservationId, conversationId);
+    
+    res.json({
+      success: true,
+      context,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error("❌ Error obteniendo contexto:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔹 NUEVO: Endpoint para buscar reservas
+app.get("/admin/hostaway/reservations/search", async (req, res) => {
+  try {
+    const { guestEmail, guestPhone, listingMapId, status, limit } = req.query;
+    
+    const filters = {};
+    if (guestEmail) filters.guestEmail = guestEmail;
+    if (guestPhone) filters.guestPhone = guestPhone;
+    if (listingMapId) filters.listingMapId = listingMapId;
+    if (status) filters.status = status;
+    if (limit) filters.limit = limit;
+
+    console.log("🔍 Buscando reservas con filtros:", filters);
+    const reservations = await hostawayService.searchReservations(filters);
+    
+    res.json({
+      success: true,
+      reservations: reservations.map(res => ({
+        id: res.id,
+        listingMapId: res.listingMapId,
+        guestName: res.guestName,
+        guestEmail: res.guestEmail,
+        checkIn: res.arrivalDate,
+        checkOut: res.departureDate,
+        status: res.status
+      })),
+      count: reservations.length
+    });
+
+  } catch (error) {
+    console.error("❌ Error buscando reservas:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔹 NUEVO: Endpoint para probar envío de mensaje
+app.post("/admin/hostaway/test-message", async (req, res) => {
+  try {
+    const { reservationId, message } = req.body;
+    
+    if (!reservationId || !message) {
+      return res.status(400).json({ error: "Se requiere reservationId y message" });
+    }
+
+    console.log(`📤 Enviando mensaje de prueba a reserva ${reservationId}...`);
+    const result = await hostawayService.sendMessageToGuest(reservationId, message);
+    
+    if (result) {
+      res.json({
+        success: true,
+        messageId: result.id,
+        message: "Mensaje enviado exitosamente"
+      });
+    } else {
+      res.status(500).json({ error: "No se pudo enviar el mensaje" });
+    }
+
+  } catch (error) {
+    console.error("❌ Error enviando mensaje de prueba:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -284,7 +448,7 @@ app.post("/admin/learn", async (req, res) => {
   }
 });
 
-// Endpoint de salud del sistema
+// Endpoint de salud del sistema con verificación de Hostaway
 app.get("/health", async (req, res) => {
   try {
     // Verificar conexión a MongoDB
@@ -300,12 +464,24 @@ app.get("/health", async (req, res) => {
       openaiStatus = "error";
     }
 
-    res.json({
-      status: "healthy",
+    // 🔹 NUEVO: Verificar conexión a Hostaway
+    let hostawayStatus = "unknown";
+    try {
+      await hostawayService.getAccessToken();
+      hostawayStatus = "connected";
+    } catch {
+      hostawayStatus = "error";
+    }
+
+    const isHealthy = mongoStatus === "connected" && openaiStatus === "connected" && hostawayStatus === "connected";
+
+    res.status(isHealthy ? 200 : 500).json({
+      status: isHealthy ? "healthy" : "unhealthy",
       timestamp: new Date().toISOString(),
       services: {
         mongodb: mongoStatus,
-        openai: openaiStatus
+        openai: openaiStatus,
+        hostaway: hostawayStatus
       },
       version: process.env.npm_package_version || "1.0.0"
     });
@@ -319,7 +495,7 @@ app.get("/health", async (req, res) => {
   }
 });
 
-// Endpoint de debug temporal
+// 🔹 ENDPOINTS DE DEBUG
 app.get("/debug/conversations", async (req, res) => {
   try {
     const { debugConversations } = require("./services/conversationHistoryService");
@@ -335,7 +511,6 @@ app.get("/debug/conversations", async (req, res) => {
   }
 });
 
-// Endpoint para probar guardado directo
 app.post("/debug/test-save", async (req, res) => {
   try {
     const { saveConversation } = require("./services/conversationHistoryService");
@@ -376,7 +551,10 @@ process.on('SIGTERM', async () => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Smithers v2 activo en puerto: ${PORT}`);
+  console.log(`🚀 Smithers v2 con integración Hostaway activo en puerto: ${PORT}`);
   console.log(`📊 Panel de estadísticas: http://localhost:${PORT}/admin/stats`);
   console.log(`🏥 Estado del sistema: http://localhost:${PORT}/health`);
-});
+  console.log(`🔍 Hostaway - Reserva: http://localhost:${PORT}/admin/hostaway/reservation/{id}`);
+  console.log(`💬 Hostaway - Conversación: http://localhost:${PORT}/admin/hostaway/conversation/{id}`);
+  console.log(`📋 Hostaway - Contexto: http://localhost:${PORT}/admin/hostaway/context/{reservationId}`);
+  });
