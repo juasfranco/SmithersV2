@@ -1,5 +1,4 @@
-// services/hostawayListingService.js
-const mongoose = require("mongoose");
+// services/hostawayListingService.js - CORREGIDO SIN DUPLICACIÓN
 const HostawayListings = require("../models/HostAwayListings");
 
 async function getListingByMapId(listingMapId) {
@@ -8,14 +7,11 @@ async function getListingByMapId(listingMapId) {
   try {
     console.log(`🔍 Buscando listing con ListingMapId: ${listingMapId}`);
     
-    // Convertir a número para coincidir con tus datos
     const idNum = Number(listingMapId);
 
-    // 🔹 BÚSQUEDA ESPECÍFICA para tus datos existentes
     let listing = await HostawayListings.findOne({ ListingMapId: idNum }).lean();
 
     if (!listing) {
-      // Fallback: buscar como string si no se encuentra como número
       listing = await HostawayListings.findOne({ ListingMapId: String(listingMapId) }).lean();
     }
 
@@ -26,10 +22,8 @@ async function getListingByMapId(listingMapId) {
         mapId: listing.ListingMapId
       });
       
-      // 🔹 MAPEAR campos importantes de tu estructura existente
       const mappedListing = {
         ...listing,
-        // Campos mapeados para compatibilidad
         checkInTime: listing.CheckInTimeStart,
         checkOutTime: listing.CheckOutTime,
         wifi: listing.WifiUsername || "Ver manual de bienvenida",
@@ -55,7 +49,6 @@ async function getListingByMapId(listingMapId) {
   }
 }
 
-// 🔹 NUEVA FUNCIÓN: Buscar por campos específicos de tu estructura
 async function searchListingByFields(searchTerm) {
   try {
     const searchRegex = new RegExp(searchTerm, 'i');

@@ -1,12 +1,20 @@
 {
   "name": "smithersv2",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "dev": "node server.js",
-    "migrate": "node scripts/safeMigration.js migrate",
+    "start": "node server.js",
+    "verify": "node scripts/verifyAndStart.js",
+    "migrate": "node scripts/safeMigration.js",
     "rollback": "node scripts/safeMigration.js rollback",
-    "test-migration": "node scripts/safeMigration.js test"
+    "test-migration": "node scripts/safeMigration.js test",
+    "test-hostaway": "node scripts/testHostawayIntegration.js",
+    "test-whatsapp": "node scripts/testWhatsApp.js",
+    "debug-db": "node -e \"require('./scripts/verifyAndStart.js').verifyDatabaseCollections()\"",
+    "debug-models": "node -e \"require('./scripts/verifyAndStart.js').testModelsConnection()\"",
+    "debug-conversations": "node -e \"require('./scripts/verifyAndStart.js').testConversationSave()\"",
+    "health-check": "curl -f http://localhost:3000/health || exit 1"
   },
   "keywords": [],
   "author": "",

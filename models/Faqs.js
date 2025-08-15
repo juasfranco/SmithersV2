@@ -1,3 +1,4 @@
+// models/Faqs.js - CORREGIDO SIN DUPLICACIÓN
 const mongoose = require("mongoose");
 
 const FaqsSchema = new mongoose.Schema({
@@ -10,4 +11,5 @@ const FaqsSchema = new mongoose.Schema({
   updatedAt: Date
 });
 
+// Especificar nombre exacto de colección
 module.exports = mongoose.model("Faqs", FaqsSchema, "Faqs");

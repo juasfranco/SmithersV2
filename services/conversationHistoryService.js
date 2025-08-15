@@ -1,5 +1,22 @@
-// services/conversationHistoryService.js - VERSION DEBUG
+// services/conversationHistoryService.js - CORREGIDO SIN DUPLICACIÓN
+const mongoose = require("mongoose");
 const Conversation = require("../models/conversation");
+
+/**
+ * Verifica el estado de conexión a MongoDB
+ */
+function checkMongoConnection() {
+  const state = mongoose.connection.readyState;
+  const states = {
+    0: 'disconnected',
+    1: 'connected', 
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+  
+  console.log(`🔍 Estado MongoDB: ${states[state]} (${state})`);
+  return state === 1;
+}
 
 /**
  * Guarda un mensaje en el historial de conversación
@@ -13,20 +30,37 @@ async function saveConversation(guestId, role, content, metadata = {}) {
   });
 
   try {
-    // Verificar conexión a MongoDB
-    if (!Conversation.db.readyState) {
-      console.error("❌ MongoDB no está conectado");
-      return;
+    // Verificar conexión correctamente
+    if (!checkMongoConnection()) {
+      console.error("❌ MongoDB no está conectado. Estado:", mongoose.connection.readyState);
+      
+      // Intentar reconectar si es necesario
+      if (mongoose.connection.readyState === 0) {
+        console.log("🔄 Intentando reconectar a MongoDB...");
+        await mongoose.connect(process.env.MONGODB_URI);
+      }
+      
+      if (!checkMongoConnection()) {
+        throw new Error("MongoDB no disponible después de intento de reconexión");
+      }
     }
 
-    console.log("🔍 Buscando conversación existente para guestId:", guestId);
+    console.log("✅ MongoDB conectado, procediendo con guardado...");
+    
     let conversation = await Conversation.findOne({ guestId });
     
     if (!conversation) {
       console.log("📝 Creando nueva conversación para:", guestId);
       conversation = new Conversation({
         guestId,
-        messages: []
+        messages: [],
+        lastActivity: new Date(),
+        summary: {
+          totalMessages: 0,
+          needsHumanSupport: false,
+          commonTopics: [],
+          satisfactionScore: null
+        }
       });
     } else {
       console.log("📋 Conversación existente encontrada, mensajes actuales:", conversation.messages.length);
@@ -36,34 +70,48 @@ async function saveConversation(guestId, role, content, metadata = {}) {
       role,
       content,
       timestamp: new Date(),
-      metadata
+      metadata: metadata || {}
     };
 
-    console.log("📨 Agregando mensaje:", newMessage);
+    console.log("📨 Agregando mensaje:", {
+      role: newMessage.role,
+      contentLength: newMessage.content.length,
+      timestamp: newMessage.timestamp
+    });
+    
     conversation.messages.push(newMessage);
 
-    // Mantener solo los últimos 50 mensajes para evitar documentos muy grandes
+    // Mantener solo los últimos 50 mensajes
     if (conversation.messages.length > 50) {
       console.log("✂️ Recortando mensajes, había:", conversation.messages.length);
       conversation.messages = conversation.messages.slice(-50);
     }
 
+    // Actualizar campos antes de guardar
+    conversation.lastActivity = new Date();
+    conversation.summary.totalMessages = conversation.messages.length;
+
     console.log("💾 Intentando guardar conversación...");
     const savedConversation = await conversation.save();
+    
     console.log("✅ Conversación guardada exitosamente:", {
       id: savedConversation._id,
       guestId: savedConversation.guestId,
       totalMessages: savedConversation.messages.length
     });
     
+    return savedConversation;
+    
   } catch (error) {
     console.error("❌ Error detallado guardando conversación:", {
       error: error.message,
-      stack: error.stack,
       guestId,
       role,
-      content: content?.substring(0, 50)
+      content: content?.substring(0, 50),
+      mongoState: mongoose.connection.readyState
     });
+    
+    return null;
   }
 }
 
@@ -74,6 +122,11 @@ async function getConversationHistory(guestId, limit = 10) {
   console.log("🔍 DEBUG getConversationHistory para:", guestId);
   
   try {
+    if (!checkMongoConnection()) {
+      console.error("❌ MongoDB no conectado en getConversationHistory");
+      return [];
+    }
+
     const conversation = await Conversation.findOne({ guestId });
     console.log("📋 Conversación encontrada:", conversation ? `${conversation.messages.length} mensajes` : "No encontrada");
     
@@ -87,7 +140,7 @@ async function getConversationHistory(guestId, limit = 10) {
         role: msg.role,
         content: msg.content,
         timestamp: msg.timestamp,
-        metadata: msg.metadata
+        metadata: msg.metadata || {}
       }));
 
     console.log("📝 Devolviendo historial:", history.length, "mensajes");
@@ -104,6 +157,11 @@ async function getConversationHistory(guestId, limit = 10) {
  */
 async function analyzeConversationPatterns(guestId) {
   try {
+    if (!checkMongoConnection()) {
+      console.error("❌ MongoDB no conectado en analyzeConversationPatterns");
+      return null;
+    }
+
     const history = await getConversationHistory(guestId, 20);
     
     const analysis = {
@@ -128,7 +186,7 @@ async function analyzeConversationPatterns(guestId) {
       .slice(0, 5)
       .map(([topic, count]) => ({ topic, count }));
 
-    // Detectar si necesita soporte humano (muchas preguntas sin respuesta satisfactoria)
+    // Detectar si necesita soporte humano
     const recentFallbacks = history.slice(-5).filter(msg => 
       msg.role === 'agent' && msg.metadata && msg.metadata.source === 'fallback'
     ).length;
@@ -143,10 +201,25 @@ async function analyzeConversationPatterns(guestId) {
   }
 }
 
-// Nueva función para debugging
+/**
+ * Función para debugging
+ */
 async function debugConversations() {
   try {
-    console.log("🔍 DEBUG: Verificando todas las conversaciones...");
+    console.log("🔍 DEBUG: Verificando estado de MongoDB y conversaciones...");
+    
+    const isConnected = checkMongoConnection();
+    console.log("📡 Estado conexión:", isConnected ? "CONECTADO" : "DESCONECTADO");
+    
+    if (!isConnected) {
+      return {
+        error: "MongoDB no conectado",
+        mongoState: mongoose.connection.readyState,
+        mongoHost: mongoose.connection.host,
+        mongoName: mongoose.connection.name
+      };
+    }
+    
     const totalConversations = await Conversation.countDocuments();
     console.log("📊 Total conversaciones en DB:", totalConversations);
     
@@ -160,10 +233,39 @@ async function debugConversations() {
       console.log(`  - ${conv.guestId}: ${conv.messages.length} mensajes`);
     });
     
-    return { totalConversations, recentConversations };
+    return { 
+      totalConversations, 
+      recentConversations,
+      mongoState: mongoose.connection.readyState,
+      mongoHost: mongoose.connection.host,
+      mongoName: mongoose.connection.name
+    };
   } catch (error) {
     console.error("❌ Error en debug:", error);
-    return null;
+    return {
+      error: error.message,
+      mongoState: mongoose.connection.readyState
+    };
+  }
+}
+
+/**
+ * Verificar y reparar conexión
+ */
+async function ensureConnection() {
+  try {
+    if (checkMongoConnection()) {
+      return true;
+    }
+    
+    console.log("🔄 Intentando reconectar a MongoDB...");
+    await mongoose.connect(process.env.MONGODB_URI);
+    
+    return checkMongoConnection();
+    
+  } catch (error) {
+    console.error("❌ Error reconectando:", error);
+    return false;
   }
 }
 
@@ -171,5 +273,7 @@ module.exports = {
   saveConversation,
   getConversationHistory,
   analyzeConversationPatterns,
-  debugConversations
+  debugConversations,
+  checkMongoConnection,
+  ensureConnection
 };

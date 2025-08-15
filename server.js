@@ -1,4 +1,4 @@
-// server.js - SERVIDOR ACTUALIZADO CON INTEGRACIÓN HOSTAWAY COMPLETA
+// server.js - VERSIÓN CORREGIDA CON MEJOR MANEJO DE CONEXIÓN
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -12,31 +12,137 @@ const { hostawayService } = require("./services/hostawayService");
 const app = express();
 app.use(bodyParser.json());
 
+// 🔹 CORRECCIÓN: Mejor manejo de conexión MongoDB
+let isMongoConnected = false;
+let connectionRetries = 0;
+const MAX_RETRIES = 5;
+
+async function connectToMongoDB() {
+  try {
+    console.log("🔄 Intentando conectar a MongoDB...");
+    console.log("🔗 URI:", process.env.MONGODB_URI ? "Configurado" : "❌ NO CONFIGURADO");
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
+      // Opciones de conexión mejoradas
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      bufferCommands: false,
+      bufferMaxEntries: 0
+    });
+    
+    isMongoConnected = true;
+    connectionRetries = 0;
+    
+    console.log("✅ Conectado a MongoDB:", mongoose.connection.name);
+    console.log("📊 Estado de conexión:", mongoose.connection.readyState);
+    
+    // Verificar colecciones existentes
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    console.log("📁 Colecciones encontradas:", collections.map(c => c.name));
+    
+    // Verificar datos existentes
+    try {
+      const hostawayCount = await mongoose.connection.db.collection('HostAwayListings').countDocuments();
+      const faqsCount = await mongoose.connection.db.collection('Faqs').countDocuments();
+      const conversationCount = await mongoose.connection.db.collection('Conversation').countDocuments();
+      
+      console.log(`📈 Datos existentes:
+      - HostAwayListings: ${hostawayCount} documentos
+      - Faqs: ${faqsCount} documentos  
+      - Conversation: ${conversationCount} documentos`);
+    } catch (countError) {
+      console.log("⚠️ Error contando documentos:", countError.message);
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.error("❌ Error conectando a MongoDB:", error.message);
+    isMongoConnected = false;
+    connectionRetries++;
+    
+    if (connectionRetries < MAX_RETRIES) {
+      console.log(`🔄 Reintentando conexión en 5 segundos... (${connectionRetries}/${MAX_RETRIES})`);
+      setTimeout(connectToMongoDB, 5000);
+    } else {
+      console.error("💥 Máximo de reintentos alcanzado. Revisa tu configuración de MongoDB.");
+    }
+    
+    return false;
+  }
+}
+
+// 🔹 CORRECCIÓN: Monitorear estado de conexión
+mongoose.connection.on('connected', () => {
+  console.log('✅ MongoDB conectado');
+  isMongoConnected = true;
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ Error en MongoDB:', err);
+  isMongoConnected = false;
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️ MongoDB desconectado');
+  isMongoConnected = false;
+  
+  // Intentar reconectar automáticamente
+  setTimeout(connectToMongoDB, 5000);
+});
+
 // Middleware para logging mejorado
 app.use((req, res, next) => {
   console.log(`📡 ${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log("✅ Conectado a MongoDB, 🔗 Conectado a: ", mongoose.connection.name);
-    
+// 🔹 MIDDLEWARE: Verificar conexión MongoDB en endpoints críticos
+function requireMongoDB(req, res, next) {
+  if (!isMongoConnected || mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      error: "Servicio temporalmente no disponible",
+      message: "Base de datos no conectada",
+      mongoState: mongoose.connection.readyState
+    });
+  }
+  next();
+}
+
+// Inicializar servidor
+async function startServer() {
+  // Conectar a MongoDB
+  await connectToMongoDB();
+  
+  // Solo iniciar el aprendizaje automático si MongoDB está conectado
+  if (isMongoConnected) {
     // Ejecutar aprendizaje automático cada hora
     setInterval(async () => {
-      try {
-        console.log("🧠 Ejecutando aprendizaje automático...");
-        await learnFromHistory();
-      } catch (error) {
-        console.error("❌ Error en aprendizaje automático:", error);
+      if (isMongoConnected) {
+        try {
+          console.log("🧠 Ejecutando aprendizaje automático...");
+          await learnFromHistory();
+        } catch (error) {
+          console.error("❌ Error en aprendizaje automático:", error);
+        }
       }
     }, 60 * 60 * 1000); // 1 hora
-  })
-  .catch(err => console.error("❌ Error MongoDB:", err));
+  }
+}
 
-// 🔹 WEBHOOK PRINCIPAL MEJORADO CON HOSTAWAY API
+// 🔹 WEBHOOK PRINCIPAL MEJORADO CON VERIFICACIÓN DE CONEXIÓN
 app.post("/webhooks/hostaway", async (req, res) => {
   const startTime = Date.now();
+  
+  // Verificar conexión antes de procesar
+  if (!isMongoConnected) {
+    console.error("⚠️ Webhook recibido pero MongoDB no conectado");
+    return res.status(503).json({
+      error: "Servicio temporalmente no disponible",
+      message: "Base de datos no conectada"
+    });
+  }
   
   try {
     console.log("📥 Webhook de Hostaway recibido:", {
@@ -45,16 +151,13 @@ app.post("/webhooks/hostaway", async (req, res) => {
       body: req.body
     });
 
-    // 🔹 DETECTAR FORMATO DE WEBHOOK
+    // Detectar formato de webhook (tu código existente)
     let event, data;
     
-    // Formato nuevo de Hostaway (unified webhooks)
     if (req.body.event && req.body.data) {
       event = req.body.event;
       data = req.body.data;
-    }
-    // Formato anterior (compatibilidad)
-    else if (req.body.event && req.body.reservationId) {
+    } else if (req.body.event && req.body.reservationId) {
       event = req.body.event === 'messageCreated' ? 'new message received' : req.body.event;
       data = {
         reservationId: req.body.reservationId,
@@ -65,9 +168,7 @@ app.post("/webhooks/hostaway", async (req, res) => {
         guestId: req.body.guestId,
         listingMapId: req.body.ListingMapId
       };
-    }
-    // Formato personalizado actual
-    else if (req.body.data) {
+    } else if (req.body.data) {
       event = 'new message received';
       data = {
         reservationId: req.body.data.reservationId,
@@ -90,7 +191,7 @@ app.post("/webhooks/hostaway", async (req, res) => {
       messagePreview: data.message?.substring(0, 50)
     });
 
-    // 🔹 PROCESAR CON EL MANEJADOR MEJORADO
+    // Procesar con el manejador mejorado
     const result = await handleHostawayWebhook(event, data);
 
     const processingTime = Date.now() - startTime;
@@ -116,32 +217,13 @@ app.post("/webhooks/hostaway", async (req, res) => {
   }
 });
 
-// 🔹 WEBHOOK PARA PRUEBAS LOCALES (mantienes tu formato actual)
-app.post("/webhooks/hostaway/local", async (req, res) => {
-  try {
-    console.log("🧪 Webhook de prueba local recibido");
-    
-    const { event, data } = req.body;
-    const result = await handleHostawayWebhook(event || 'new message received', data);
-    
-    res.json({ success: true, result });
-    
-  } catch (error) {
-    console.error("❌ Error en webhook local:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔹 NUEVOS ENDPOINTS PARA ADMINISTRACIÓN CON HOSTAWAY
-
-// Endpoint para obtener estadísticas del agente con datos de Hostaway
-app.get("/admin/stats", async (req, res) => {
+// Resto de endpoints con middleware de verificación MongoDB
+app.get("/admin/stats", requireMongoDB, async (req, res) => {
   try {
     const Conversation = require("./models/conversation");
     const SupportTicket = require("./models/SupportTicket");
 
     const stats = await Promise.all([
-      // Estadísticas de conversaciones
       Conversation.countDocuments(),
       Conversation.aggregate([
         { $unwind: "$messages" },
@@ -152,8 +234,6 @@ app.get("/admin/stats", async (req, res) => {
           }
         }
       ]),
-      
-      // Estadísticas de tickets de soporte
       SupportTicket.countDocuments({ status: "open" }),
       SupportTicket.aggregate([
         { $group: { 
@@ -162,13 +242,9 @@ app.get("/admin/stats", async (req, res) => {
           }
         }
       ]),
-
-      // Conversaciones activas en las últimas 24 horas
       Conversation.countDocuments({
         lastActivity: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
       }),
-      
-      // Conversaciones con datos de Hostaway
       Conversation.countDocuments({
         "messages.metadata.hostaway": true
       })
@@ -190,271 +266,13 @@ app.get("/admin/stats", async (req, res) => {
   }
 });
 
-// 🔹 NUEVO: Endpoint para obtener datos de reserva desde Hostaway
-app.get("/admin/hostaway/reservation/:reservationId", async (req, res) => {
-  try {
-    const { reservationId } = req.params;
-    
-    console.log(`🔍 Buscando reserva ${reservationId} en Hostaway...`);
-    const reservation = await hostawayService.getReservationById(reservationId);
-    
-    if (!reservation) {
-      return res.status(404).json({ error: "Reserva no encontrada" });
-    }
-
-    res.json({
-      success: true,
-      reservation: {
-        id: reservation.id,
-        listingMapId: reservation.listingMapId,
-        guestName: reservation.guestName,
-        guestEmail: reservation.guestEmail,
-        checkIn: reservation.arrivalDate,
-        checkOut: reservation.departureDate,
-        status: reservation.status,
-        totalPrice: reservation.totalPrice,
-        currency: reservation.currencyCode,
-        source: reservation.channelName
-      }
-    });
-
-  } catch (error) {
-    console.error("❌ Error obteniendo reserva:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔹 NUEVO: Endpoint para obtener conversación desde Hostaway
-app.get("/admin/hostaway/conversation/:conversationId", async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    
-    console.log(`💬 Buscando conversación ${conversationId} en Hostaway...`);
-    const conversation = await hostawayService.getConversationById(conversationId);
-    const messages = await hostawayService.getConversationMessages(conversationId, 20);
-    
-    if (!conversation) {
-      return res.status(404).json({ error: "Conversación no encontrada" });
-    }
-
-    res.json({
-      success: true,
-      conversation: {
-        id: conversation.id,
-        reservationId: conversation.reservationId,
-        totalMessages: messages.length,
-        messages: messages.map(msg => ({
-          id: msg.id,
-          type: msg.type,
-          message: msg.message,
-          sentAt: msg.insertedOn,
-          isFromGuest: msg.type === 'inquiry'
-        }))
-      }
-    });
-
-  } catch (error) {
-    console.error("❌ Error obteniendo conversación:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔹 NUEVO: Endpoint para obtener contexto completo
-app.get("/admin/hostaway/context/:reservationId", async (req, res) => {
-  try {
-    const { reservationId } = req.params;
-    const { conversationId } = req.query;
-    
-    console.log(`📊 Obteniendo contexto completo para reserva ${reservationId}...`);
-    const { getCompleteContext } = require("./services/hostawayService");
-    const context = await getCompleteContext(reservationId, conversationId);
-    
-    res.json({
-      success: true,
-      context,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error("❌ Error obteniendo contexto:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔹 NUEVO: Endpoint para buscar reservas
-app.get("/admin/hostaway/reservations/search", async (req, res) => {
-  try {
-    const { guestEmail, guestPhone, listingMapId, status, limit } = req.query;
-    
-    const filters = {};
-    if (guestEmail) filters.guestEmail = guestEmail;
-    if (guestPhone) filters.guestPhone = guestPhone;
-    if (listingMapId) filters.listingMapId = listingMapId;
-    if (status) filters.status = status;
-    if (limit) filters.limit = limit;
-
-    console.log("🔍 Buscando reservas con filtros:", filters);
-    const reservations = await hostawayService.searchReservations(filters);
-    
-    res.json({
-      success: true,
-      reservations: reservations.map(res => ({
-        id: res.id,
-        listingMapId: res.listingMapId,
-        guestName: res.guestName,
-        guestEmail: res.guestEmail,
-        checkIn: res.arrivalDate,
-        checkOut: res.departureDate,
-        status: res.status
-      })),
-      count: reservations.length
-    });
-
-  } catch (error) {
-    console.error("❌ Error buscando reservas:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔹 NUEVO: Endpoint para probar envío de mensaje
-app.post("/admin/hostaway/test-message", async (req, res) => {
-  try {
-    const { reservationId, message } = req.body;
-    
-    if (!reservationId || !message) {
-      return res.status(400).json({ error: "Se requiere reservationId y message" });
-    }
-
-    console.log(`📤 Enviando mensaje de prueba a reserva ${reservationId}...`);
-    const result = await hostawayService.sendMessageToGuest(reservationId, message);
-    
-    if (result) {
-      res.json({
-        success: true,
-        messageId: result.id,
-        message: "Mensaje enviado exitosamente"
-      });
-    } else {
-      res.status(500).json({ error: "No se pudo enviar el mensaje" });
-    }
-
-  } catch (error) {
-    console.error("❌ Error enviando mensaje de prueba:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint para obtener tickets de soporte pendientes
-app.get("/admin/tickets", async (req, res) => {
-  try {
-    const SupportTicket = require("./models/SupportTicket");
-    const { status = "open", priority, limit = 20 } = req.query;
-
-    const filter = { status };
-    if (priority) filter.priority = priority;
-
-    const tickets = await SupportTicket.find(filter)
-      .sort({ priority: -1, createdAt: -1 })
-      .limit(parseInt(limit))
-      .lean();
-
-    res.json({
-      tickets,
-      total: tickets.length,
-      filter: { status, priority }
-    });
-
-  } catch (error) {
-    console.error("❌ Error obteniendo tickets:", error);
-    res.status(500).json({ error: "Error obteniendo tickets" });
-  }
-});
-
-// Endpoint para resolver un ticket
-app.put("/admin/tickets/:ticketId/resolve", async (req, res) => {
-  try {
-    const SupportTicket = require("./models/SupportTicket");
-    const { ticketId } = req.params;
-    const { resolution, resolvedBy } = req.body;
-
-    const ticket = await SupportTicket.findByIdAndUpdate(
-      ticketId,
-      {
-        status: "resolved",
-        resolution,
-        "metadata.resolvedAt": new Date(),
-        "metadata.resolvedBy": resolvedBy
-      },
-      { new: true }
-    );
-
-    if (!ticket) {
-      return res.status(404).json({ error: "Ticket no encontrado" });
-    }
-
-    res.json({
-      success: true,
-      ticket
-    });
-
-  } catch (error) {
-    console.error("❌ Error resolviendo ticket:", error);
-    res.status(500).json({ error: "Error resolviendo ticket" });
-  }
-});
-
-// Endpoint para obtener historial de conversación
-app.get("/admin/conversations/:guestId", async (req, res) => {
-  try {
-    const { getConversationHistory, analyzeConversationPatterns } = require("./services/conversationHistoryService");
-    const { guestId } = req.params;
-    const { limit = 20 } = req.query;
-
-    const [history, patterns] = await Promise.all([
-      getConversationHistory(guestId, parseInt(limit)),
-      analyzeConversationPatterns(guestId)
-    ]);
-
-    res.json({
-      guestId,
-      history,
-      patterns,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error("❌ Error obteniendo conversación:", error);
-    res.status(500).json({ error: "Error obteniendo conversación" });
-  }
-});
-
-// Endpoint para forzar aprendizaje automático
-app.post("/admin/learn", async (req, res) => {
-  try {
-    console.log("🧠 Ejecutando aprendizaje forzado...");
-    const patterns = await learnFromHistory();
-    
-    res.json({
-      success: true,
-      message: "Aprendizaje ejecutado",
-      patternsFound: patterns.length,
-      patterns: patterns.slice(0, 10), // Mostrar solo los primeros 10
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error("❌ Error en aprendizaje forzado:", error);
-    res.status(500).json({ error: "Error ejecutando aprendizaje" });
-  }
-});
-
-// Endpoint de salud del sistema con verificación de Hostaway
+// Endpoint de salud mejorado
 app.get("/health", async (req, res) => {
   try {
     // Verificar conexión a MongoDB
-    const mongoStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+    const mongoStatus = isMongoConnected && mongoose.connection.readyState === 1 ? "connected" : "disconnected";
     
-    // Verificar OpenAI (opcional)
+    // Verificar OpenAI
     let openaiStatus = "unknown";
     try {
       const { ask } = require("./services/gptService");
@@ -464,7 +282,7 @@ app.get("/health", async (req, res) => {
       openaiStatus = "error";
     }
 
-    // 🔹 NUEVO: Verificar conexión a Hostaway
+    // Verificar conexión a Hostaway
     let hostawayStatus = "unknown";
     try {
       await hostawayService.getAccessToken();
@@ -479,7 +297,12 @@ app.get("/health", async (req, res) => {
       status: isHealthy ? "healthy" : "unhealthy",
       timestamp: new Date().toISOString(),
       services: {
-        mongodb: mongoStatus,
+        mongodb: {
+          status: mongoStatus,
+          readyState: mongoose.connection.readyState,
+          host: mongoose.connection.host,
+          name: mongoose.connection.name
+        },
         openai: openaiStatus,
         hostaway: hostawayStatus
       },
@@ -495,7 +318,7 @@ app.get("/health", async (req, res) => {
   }
 });
 
-// 🔹 ENDPOINTS DE DEBUG
+// 🔹 ENDPOINTS DE DEBUG MEJORADOS
 app.get("/debug/conversations", async (req, res) => {
   try {
     const { debugConversations } = require("./services/conversationHistoryService");
@@ -503,7 +326,12 @@ app.get("/debug/conversations", async (req, res) => {
     
     res.json({
       debug,
-      mongoStatus: mongoose.connection.readyState,
+      mongoStatus: {
+        isConnected: isMongoConnected,
+        readyState: mongoose.connection.readyState,
+        host: mongoose.connection.host,
+        name: mongoose.connection.name
+      },
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -511,14 +339,37 @@ app.get("/debug/conversations", async (req, res) => {
   }
 });
 
-app.post("/debug/test-save", async (req, res) => {
+app.post("/debug/test-save", requireMongoDB, async (req, res) => {
   try {
-    const { saveConversation } = require("./services/conversationHistoryService");
+    const { saveConversation, ensureConnection } = require("./services/conversationHistoryService");
+    
+    // Asegurar conexión antes de la prueba
+    const connected = await ensureConnection();
+    if (!connected) {
+      return res.status(503).json({ error: "No se pudo conectar a MongoDB" });
+    }
     
     await saveConversation("debug-guest-123", "guest", "Mensaje de prueba desde debug");
     await saveConversation("debug-guest-123", "agent", "Respuesta de prueba desde debug");
     
     res.json({ success: true, message: "Prueba de guardado completada" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔹 NUEVO: Endpoint para forzar reconexión
+app.post("/debug/reconnect-mongo", async (req, res) => {
+  try {
+    console.log("🔄 Forzando reconexión a MongoDB...");
+    await mongoose.disconnect();
+    const connected = await connectToMongoDB();
+    
+    res.json({
+      success: connected,
+      message: connected ? "Reconexión exitosa" : "Error en reconexión",
+      mongoState: mongoose.connection.readyState
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -535,7 +386,7 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Graceful shutdown
+// Graceful shutdown mejorado
 process.on('SIGTERM', async () => {
   console.log('🔄 Cerrando servidor gracefully...');
   
@@ -549,12 +400,17 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Smithers v2 con integración Hostaway activo en puerto: ${PORT}`);
-  console.log(`📊 Panel de estadísticas: http://localhost:${PORT}/admin/stats`);
-  console.log(`🏥 Estado del sistema: http://localhost:${PORT}/health`);
-  console.log(`🔍 Hostaway - Reserva: http://localhost:${PORT}/admin/hostaway/reservation/{id}`);
-  console.log(`💬 Hostaway - Conversación: http://localhost:${PORT}/admin/hostaway/conversation/{id}`);
-  console.log(`📋 Hostaway - Contexto: http://localhost:${PORT}/admin/hostaway/context/{reservationId}`);
+// Inicializar servidor
+startServer().then(() => {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Smithers v2 con integración Hostaway activo en puerto: ${PORT}`);
+    console.log(`📊 Panel de estadísticas: http://localhost:${PORT}/admin/stats`);
+    console.log(`🏥 Estado del sistema: http://localhost:${PORT}/health`);
+    console.log(`🔧 Debug conversaciones: http://localhost:${PORT}/debug/conversations`);
+    console.log(`🔄 Reconectar MongoDB: POST http://localhost:${PORT}/debug/reconnect-mongo`);
   });
+}).catch(error => {
+  console.error("💥 Error iniciando servidor:", error);
+  process.exit(1);
+});

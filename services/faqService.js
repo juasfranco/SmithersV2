@@ -1,4 +1,4 @@
-// services/faqService.js - ACTUALIZADO para trabajar con tu estructura de FAQs
+// services/faqService.js - CORREGIDO SIN DUPLICACIÓN DE MONGOOSE
 const Faqs = require("../models/Faqs");
 const gptService = require("./gptService");
 
@@ -6,7 +6,7 @@ async function searchFAQ(question, conversationHistory = []) {
   try {
     console.log("📚 Buscando en FAQs existentes...");
     
-    // 🔹 OBTENER TUS FAQs existentes (respeta tu estructura)
+    // Obtener FAQs existentes (respeta tu estructura)
     const faqs = await Faqs.find({}).lean();
     console.log(`📖 Encontradas ${faqs.length} FAQs en la base de datos`);
     
@@ -17,9 +17,8 @@ async function searchFAQ(question, conversationHistory = []) {
       ? `Contexto previo:\n${conversationHistory.slice(-3).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nPregunta actual: ${question}`
       : question;
 
-    // 🔹 FORMATO específico para tus FAQs
+    // Formato específico para tus FAQs
     const faqsText = faqs.map(f => {
-      // Manejar tanto tu estructura existente como posibles variaciones
       const faqQuestion = f.question || f.Question || f.q;
       const faqAnswer = f.answer || f.Answer || f.a;
       return `Q: ${faqQuestion}\nA: ${faqAnswer}`;
@@ -57,6 +56,29 @@ Respuesta:
   }
 }
 
+/**
+ * Función para aprender de historial de conversaciones
+ */
+async function learnFromHistory() {
+  try {
+    console.log("🧠 Iniciando aprendizaje automático desde historial...");
+    
+    // Aquí podrías implementar lógica para:
+    // 1. Analizar conversaciones frecuentes sin respuesta satisfactoria
+    // 2. Identificar patrones de preguntas no cubiertas por FAQs
+    // 3. Generar sugerencias de nuevas FAQs
+    
+    const patterns = [];
+    console.log("✅ Aprendizaje completado");
+    return patterns;
+    
+  } catch (error) {
+    console.error("❌ Error en aprendizaje automático:", error);
+    return [];
+  }
+}
+
 module.exports = { 
-  searchFAQ
+  searchFAQ,
+  learnFromHistory
 };

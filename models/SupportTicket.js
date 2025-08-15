@@ -1,4 +1,4 @@
-// models/SupportTicket.js
+// models/SupportTicket.js - CORREGIDO SIN DUPLICACIÓN
 const mongoose = require("mongoose");
 
 const SupportTicketSchema = new mongoose.Schema({
