@@ -1,6 +1,6 @@
-// src/infrastructure/database/mongodb/Connection.js
+// src/infraestructure/database/mongodb/Connection.js
 const mongoose = require('mongoose');
-const { SecureLogger } = require('../../security/SecurityHeaders');
+const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 
 class DatabaseConnection {
   constructor() {
@@ -133,5 +133,9 @@ class DatabaseConnection {
       host: mongoose.connection.host,
       name: mongoose.connection.name
     };
+  }
+
+  async shutdown() {
+    await this.disconnect();
   }
 }

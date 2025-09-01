@@ -2,6 +2,7 @@
 const { IListingRepository } = require('../../../domain/repositories/IListingRepository');
 const { Listing } = require('../../../domain/entities/Listing');
 const ListingModel = require('./models/ListingModel');
+const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 
 class MongoListingRepository extends IListingRepository {
   constructor() {

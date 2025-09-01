@@ -28,3 +28,4 @@ class IConversationRepository {
     throw new Error('Method getStatistics must be implemented');
   }
 }
+module.exports = { IConversationRepository };

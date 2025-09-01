@@ -1,4 +1,6 @@
 // src/application/usecases/GenerateResponseUseCase.js
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class GenerateResponseUseCase {
   constructor({
     listingRepository,

@@ -24,3 +24,4 @@ class IListingRepository {
     throw new Error('Method findAll must be implemented');
   }
 }
+module.exports = { IListingRepository };

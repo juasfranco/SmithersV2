@@ -1,21 +1,30 @@
+
 // src/config/DependencyContainer.js
-const { Validator } = require('../infrastructure/security/Validator');
-const { RateLimiter, TokenManager, SecurityHeaders } = require('../infrastructure/security/TokenManager');
+const { Validator } = require('../infraestructure/secutiry/Validator');
+const { RateLimiter } = require('../infraestructure/secutiry/RateLimiter');
+const { TokenManager } = require('../infraestructure/secutiry/TokenManager');
+const { SecurityHeaders } = require('../infraestructure/secutiry/SecurityHeaders');
 const { SecureLogger } = require('../shared/logger/SecureLogger');
 
-// Infrastructure
-const { DatabaseConnection, MongoConversationRepository, MongoListingRepository } = require('../infrastructure/database/mongodb/Connection');
-const { HostawayService } = require('../infrastructure/external/hostaway/HostawayService');
-const { OpenAIService } = require('../infrastructure/external/openai/OpenAIService');
-const { WhatsAppService } = require('../infrastructure/external/whatsapp/WhatsAppService');
+// Infrastructure - Database
+const { DatabaseConnection } = require('../infraestructure/database/mongodb/Connection');
+const { MongoConversationRepository } = require('../infraestructure/database/mongodb/ConversationRepository');
+const { MongoListingRepository } = require('../infraestructure/database/mongodb/ListingRepository');
+
+// Infrastructure - External Services
+const { HostawayService } = require('../infraestructure/external/hostaway/HostawayService');
+const { OpenAIService } = require('../infraestructure/external/openai/OpenAIService');
+const { WhatsAppService } = require('../infraestructure/external/whatsapp/WhatsAppService');
 
 // Repositories
-const { MongoFAQRepository, MongoSupportTicketRepository } = require('../infrastructure/database/mongodb/AdditionalRepositories');
+const { MongoFAQRepository, MongoSupportTicketRepository } = require('../infraestructure/database/mongodb/AdditionalRepositories');
 
 // Use Cases
-const { ProcessWebhookUseCase, GenerateResponseUseCase, SendNotificationUseCase } = require('../application/usecases/ProcessWebhookUseCase');
+const { ProcessWebhookUseCase } = require('../application/usecases/ProcessWebhookUseCase');
+const { GenerateResponseUseCase } = require('../application/usecases/GenerateResponseUseCase');
+const { SendNotificationUseCase } = require('../application/usecases/SendNotificationUseCase');
 
-// Controllers
+// Controllers and Middleware
 const { WebhookController, HealthController, AdminController,
          AuthMiddleware, ValidationMiddleware, ErrorMiddleware } = require('../presentation/controllers/WebhookController');
 
@@ -223,10 +232,11 @@ class DependencyContainer {
         if (typeof instance.healthCheck === 'function') {
           results[name] = await instance.healthCheck();
         } else {
-          results[name] = { status: 'available' };
+          results[name] = { healthy: true, status: 'available' };
         }
       } catch (error) {
         results[name] = { 
+          healthy: false,
           status: 'error', 
           error: error.message 
         };
@@ -257,4 +267,5 @@ class DependencyContainer {
     this.logger.info('Dependency container shutdown completed');
   }
 }
+
 module.exports = { DependencyContainer };

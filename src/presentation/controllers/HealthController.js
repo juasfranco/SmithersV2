@@ -1,4 +1,7 @@
 // src/presentation/controllers/HealthController.js
+
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class HealthController {
   constructor({ 
     databaseConnection, 

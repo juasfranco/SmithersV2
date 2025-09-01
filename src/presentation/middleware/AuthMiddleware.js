@@ -1,4 +1,7 @@
 // src/presentation/middleware/AuthMiddleware.js
+
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class AuthMiddleware {
   constructor() {
     this.logger = new SecureLogger();

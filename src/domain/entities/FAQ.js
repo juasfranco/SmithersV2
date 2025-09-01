@@ -66,3 +66,5 @@ class FAQ {
     );
   }
 }
+
+module.exports = { FAQ };

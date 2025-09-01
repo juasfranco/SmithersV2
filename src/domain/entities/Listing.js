@@ -68,3 +68,5 @@ class Listing {
     };
   }
 }
+
+module.exports = { Listing };

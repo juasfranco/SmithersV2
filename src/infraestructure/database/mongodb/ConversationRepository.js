@@ -1,7 +1,8 @@
-// src/infrastructure/database/mongodb/ConversationRepository.js
+// src/infraestructure/database/mongodb/ConversationRepository.js
+const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 const { IConversationRepository } = require('../../../domain/repositories/IConversationRepository');
 const { Conversation } = require('../../../domain/entities/Conversation');
-const ConversationModel = require('./models/ConversationModel');
+const ConversationModel = require('../models/ConversationModel');
 
 class MongoConversationRepository extends IConversationRepository {
   constructor() {
@@ -142,3 +143,5 @@ class MongoConversationRepository extends IConversationRepository {
     });
   }
 }
+
+module.exports = { MongoConversationRepository };

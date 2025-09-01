@@ -1,4 +1,7 @@
 // src/presentation/middleware/ErrorMiddleware.js
+
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class ErrorMiddleware {
   constructor() {
     this.logger = new SecureLogger();

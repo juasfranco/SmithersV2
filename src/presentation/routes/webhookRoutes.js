@@ -14,3 +14,5 @@ function createWebhookRoutes(container) {
 
   return router;
 }
+
+module.exports = createWebhookRoutes;

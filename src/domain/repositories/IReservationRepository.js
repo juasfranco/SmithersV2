@@ -28,3 +28,4 @@ class IReservationRepository {
     throw new Error('Method findUpcoming must be implemented');
   }
 }
+module.exports = { IReservationRepository };

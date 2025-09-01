@@ -1,4 +1,7 @@
 // src/presentation/controllers/AdminController.js
+
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class AdminController {
   constructor({
     conversationRepository,

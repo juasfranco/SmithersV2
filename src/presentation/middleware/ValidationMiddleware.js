@@ -1,5 +1,6 @@
 // src/presentation/middleware/ValidationMiddleware.js
 const { Validator } = require('../../infrastructure/security/Validator');
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class ValidationMiddleware {
   constructor() {

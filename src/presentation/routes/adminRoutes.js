@@ -17,3 +17,5 @@ function createAdminRoutes(container) {
 
   return router;
 }
+
+module.exports = createAdminRoutes;

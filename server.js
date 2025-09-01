@@ -1,4 +1,4 @@
-// src/server.js - VERSIÓN REFACTORIZADA CON CLEAN ARCHITECTURE
+// server.js - VERSIÓN REFACTORIZADA CON CLEAN ARCHITECTURE
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -6,7 +6,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 
 const { DependencyContainer } = require('./src/config/DependencyContainer');
-const { SecurityHeaders } = require('./infrastructure/security/TokenManager');
+const { SecurityHeaders } = require('./src/infraestructure/secutiry/SecurityHeaders');
 const { SecureLogger } = require('./src/shared/logger/SecureLogger');
 const routes = require('./src/presentation/routes');
 
@@ -307,3 +307,15 @@ class Server {
     }
   }
 }
+
+// Start the server if this file is run directly
+if (require.main === module) {
+  const server = new Server();
+  
+  server.start().catch(error => {
+    console.error('💥 Failed to start server:', error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = Server;

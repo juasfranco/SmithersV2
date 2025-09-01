@@ -90,3 +90,5 @@ class Conversation {
     return sanitized;
   }
 }
+
+module.exports = { Conversation };

@@ -33,21 +33,4 @@ function createDebugRoutes(container) {
   return router;
 }
 
-module.exports = createRoutes;
-
-// Export route creators
-module.exports.webhookRoutes = createWebhookRoutes;
-module.exports.adminRoutes = createAdminRoutes;
-module.exports.debugRoutes = createDebugRoutes;
-
-// Start the server if this file is run directly
-if (require.main === module) {
-  const server = new Server();
-  
-  server.start().catch(error => {
-    console.error('💥 Failed to start server:', error.message);
-    process.exit(1);
-  });
-}
-
-module.exports = Server;
+module.exports = createDebugRoutes;

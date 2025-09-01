@@ -80,3 +80,5 @@ class Reservation {
     return Math.ceil((this.checkOutDate - this.checkInDate) / (1000 * 60 * 60 * 24));
   }
 }
+
+module.exports = { Reservation };

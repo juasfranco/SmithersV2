@@ -1,4 +1,7 @@
 // src/application/usecases/SendNotificationUseCase.js
+
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class SendNotificationUseCase {
   constructor({
     supportTicketRepository,
