@@ -1,416 +1,309 @@
-// server.js - VERSIÓN CORREGIDA CON MEJOR MANEJO DE CONEXIÓN
-require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
-const mongoose = require("mongoose");
+// src/server.js - VERSIÓN REFACTORIZADA CON CLEAN ARCHITECTURE
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
 
-const { handleHostawayWebhook } = require("./services/enhancedWebhookHandler");
-const { analyzeConversationPatterns } = require("./services/conversationHistoryService");
-const { learnFromHistory } = require("./services/faqService");
-const { hostawayService } = require("./services/hostawayService");
+const { DependencyContainer } = require('./src/config/DependencyContainer');
+const { SecurityHeaders } = require('./infrastructure/security/TokenManager');
+const { SecureLogger } = require('./src/shared/logger/SecureLogger');
+const routes = require('./src/presentation/routes');
 
-const app = express();
-app.use(bodyParser.json());
+class Server {
+  constructor() {
+    this.app = express();
+    this.port = process.env.PORT || 3000;
+    this.logger = new SecureLogger();
+    this.container = null;
+    this.server = null;
+  }
 
-// 🔹 CORRECCIÓN: Mejor manejo de conexión MongoDB
-let isMongoConnected = false;
-let connectionRetries = 0;
-const MAX_RETRIES = 5;
-
-async function connectToMongoDB() {
-  try {
-    console.log("🔄 Intentando conectar a MongoDB...");
-    console.log("🔗 URI:", process.env.MONGODB_URI ? "Configurado" : "❌ NO CONFIGURADO");
-    
-    await mongoose.connect(process.env.MONGODB_URI, {
-      // Opciones de conexión mejoradas
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      bufferCommands: false,
-      bufferMaxEntries: 0
-    });
-    
-    isMongoConnected = true;
-    connectionRetries = 0;
-    
-    console.log("✅ Conectado a MongoDB:", mongoose.connection.name);
-    console.log("📊 Estado de conexión:", mongoose.connection.readyState);
-    
-    // Verificar colecciones existentes
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    console.log("📁 Colecciones encontradas:", collections.map(c => c.name));
-    
-    // Verificar datos existentes
+  async initialize() {
     try {
-      const hostawayCount = await mongoose.connection.db.collection('HostAwayListings').countDocuments();
-      const faqsCount = await mongoose.connection.db.collection('Faqs').countDocuments();
-      const conversationCount = await mongoose.connection.db.collection('Conversation').countDocuments();
+      this.logger.info('🚀 Initializing Smithers v2 with Clean Architecture...');
+
+      // 1. Initialize dependency container
+      this.container = new DependencyContainer();
+      await this.container.initialize();
+
+      // 2. Configure Express app
+      this.configureMiddleware();
+      this.configureRoutes();
+      this.configureErrorHandling();
+
+      // 3. Setup graceful shutdown
+      this.setupGracefulShutdown();
+
+      this.logger.info('✅ Server initialization completed');
+      return true;
+
+    } catch (error) {
+      this.logger.error('❌ Server initialization failed', {
+        error: error.message,
+        stack: error.stack
+      });
       
-      console.log(`📈 Datos existentes:
-      - HostAwayListings: ${hostawayCount} documentos
-      - Faqs: ${faqsCount} documentos  
-      - Conversation: ${conversationCount} documentos`);
-    } catch (countError) {
-      console.log("⚠️ Error contando documentos:", countError.message);
+      await this.shutdown();
+      throw error;
     }
-    
-    return true;
-    
-  } catch (error) {
-    console.error("❌ Error conectando a MongoDB:", error.message);
-    isMongoConnected = false;
-    connectionRetries++;
-    
-    if (connectionRetries < MAX_RETRIES) {
-      console.log(`🔄 Reintentando conexión en 5 segundos... (${connectionRetries}/${MAX_RETRIES})`);
-      setTimeout(connectToMongoDB, 5000);
-    } else {
-      console.error("💥 Máximo de reintentos alcanzado. Revisa tu configuración de MongoDB.");
-    }
-    
-    return false;
   }
-}
 
-// 🔹 CORRECCIÓN: Monitorear estado de conexión
-mongoose.connection.on('connected', () => {
-  console.log('✅ MongoDB conectado');
-  isMongoConnected = true;
-});
+  configureMiddleware() {
+    this.logger.debug('Configuring middleware...');
 
-mongoose.connection.on('error', (err) => {
-  console.error('❌ Error en MongoDB:', err);
-  isMongoConnected = false;
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB desconectado');
-  isMongoConnected = false;
-  
-  // Intentar reconectar automáticamente
-  setTimeout(connectToMongoDB, 5000);
-});
-
-// Middleware para logging mejorado
-app.use((req, res, next) => {
-  console.log(`📡 ${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
-
-// 🔹 MIDDLEWARE: Verificar conexión MongoDB en endpoints críticos
-function requireMongoDB(req, res, next) {
-  if (!isMongoConnected || mongoose.connection.readyState !== 1) {
-    return res.status(503).json({
-      error: "Servicio temporalmente no disponible",
-      message: "Base de datos no conectada",
-      mongoState: mongoose.connection.readyState
-    });
-  }
-  next();
-}
-
-// Inicializar servidor
-async function startServer() {
-  // Conectar a MongoDB
-  await connectToMongoDB();
-  
-  // Solo iniciar el aprendizaje automático si MongoDB está conectado
-  if (isMongoConnected) {
-    // Ejecutar aprendizaje automático cada hora
-    setInterval(async () => {
-      if (isMongoConnected) {
-        try {
-          console.log("🧠 Ejecutando aprendizaje automático...");
-          await learnFromHistory();
-        } catch (error) {
-          console.error("❌ Error en aprendizaje automático:", error);
+    // Security headers
+    this.app.use(SecurityHeaders.getMiddleware());
+    this.app.use(helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:"],
+          connectSrc: ["'self'"]
         }
       }
-    }, 60 * 60 * 1000); // 1 hora
-  }
-}
+    }));
 
-// 🔹 WEBHOOK PRINCIPAL MEJORADO CON VERIFICACIÓN DE CONEXIÓN
-app.post("/webhooks/hostaway", async (req, res) => {
-  const startTime = Date.now();
-  
-  // Verificar conexión antes de procesar
-  if (!isMongoConnected) {
-    console.error("⚠️ Webhook recibido pero MongoDB no conectado");
-    return res.status(503).json({
-      error: "Servicio temporalmente no disponible",
-      message: "Base de datos no conectada"
-    });
-  }
-  
-  try {
-    console.log("📥 Webhook de Hostaway recibido:", {
-      timestamp: new Date().toISOString(),
-      headers: req.headers,
-      body: req.body
+    // CORS configuration
+    const corsOptions = {
+      origin: process.env.ALLOWED_ORIGINS?.split(',') || false,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+    };
+    this.app.use(cors(corsOptions));
+
+    // Compression
+    this.app.use(compression());
+
+    // Body parsing
+    this.app.use(express.json({ 
+      limit: '10mb',
+      verify: (req, res, buf) => {
+        req.rawBody = buf; // For webhook signature verification
+      }
+    }));
+    this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+    // Rate limiting (global)
+    const rateLimiter = this.container.get('rateLimiter');
+    this.app.use(rateLimiter.getMiddleware());
+
+    // Request logging
+    this.app.use((req, res, next) => {
+      const startTime = Date.now();
+      
+      // Log request
+      this.logger.info('Incoming request', {
+        method: req.method,
+        path: req.path,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        contentLength: req.get('Content-Length')
+      });
+
+      // Log response
+      res.on('finish', () => {
+        const duration = Date.now() - startTime;
+        this.logger.info('Request completed', {
+          method: req.method,
+          path: req.path,
+          statusCode: res.statusCode,
+          duration: `${duration}ms`
+        });
+      });
+
+      next();
     });
 
-    // Detectar formato de webhook (tu código existente)
-    let event, data;
+    // Inject container into requests
+    this.app.use((req, res, next) => {
+      req.container = this.container;
+      next();
+    });
+
+    this.logger.debug('Middleware configuration completed');
+  }
+
+  configureRoutes() {
+    this.logger.debug('Configuring routes...');
+
+    // Health check endpoint (no auth required)
+    this.app.get('/health', (req, res) => {
+      const healthController = this.container.get('healthController');
+      healthController.getHealthStatus(req, res);
+    });
+
+    // API routes
+    this.app.use('/api', routes(this.container));
+
+    // Legacy webhook endpoint (backward compatibility)
+    this.app.post('/webhooks/hostaway', (req, res) => {
+      const webhookController = this.container.get('webhookController');
+      webhookController.handleHostawayWebhook(req, res);
+    });
+
+    this.logger.debug('Routes configuration completed');
+  }
+
+  configureErrorHandling() {
+    this.logger.debug('Configuring error handling...');
+
+    // 404 handler
+    const errorMiddleware = this.container.get('errorMiddleware');
+    this.app.use(errorMiddleware.handle404());
+
+    // Global error handler
+    this.app.use(errorMiddleware.handleErrors());
+
+    // Unhandled promise rejection
+    process.on('unhandledRejection', (reason, promise) => {
+      this.logger.error('Unhandled Promise Rejection', {
+        reason: reason?.message || reason,
+        stack: reason?.stack
+      });
+    });
+
+    // Uncaught exception
+    process.on('uncaughtException', (error) => {
+      this.logger.error('Uncaught Exception', {
+        error: error.message,
+        stack: error.stack
+      });
+      
+      // Graceful shutdown on uncaught exception
+      this.shutdown().then(() => process.exit(1));
+    });
+
+    this.logger.debug('Error handling configuration completed');
+  }
+
+  setupGracefulShutdown() {
+    const signals = ['SIGTERM', 'SIGINT', 'SIGUSR2'];
     
-    if (req.body.event && req.body.data) {
-      event = req.body.event;
-      data = req.body.data;
-    } else if (req.body.event && req.body.reservationId) {
-      event = req.body.event === 'messageCreated' ? 'new message received' : req.body.event;
-      data = {
-        reservationId: req.body.reservationId,
-        conversationId: req.body.conversationId,
-        messageId: req.body.messageId,
-        message: req.body.message,
-        messageType: req.body.messageType,
-        guestId: req.body.guestId,
-        listingMapId: req.body.ListingMapId
-      };
-    } else if (req.body.data) {
-      event = 'new message received';
-      data = {
-        reservationId: req.body.data.reservationId,
-        conversationId: req.body.data.conversationId,
-        message: req.body.data.message,
-        guestId: req.body.data.guestId,
-        listingMapId: req.body.data.ListingMapId
-      };
-    } else {
-      return res.status(400).json({ 
-        error: "Formato de webhook no reconocido",
-        receivedKeys: Object.keys(req.body)
+    signals.forEach(signal => {
+      process.on(signal, async () => {
+        this.logger.info(`Received ${signal}, starting graceful shutdown...`);
+        await this.shutdown();
+        process.exit(0);
+      });
+    });
+
+    // Handle PM2 graceful shutdown
+    process.on('message', async (msg) => {
+      if (msg === 'shutdown') {
+        this.logger.info('Received PM2 shutdown message');
+        await this.shutdown();
+        process.exit(0);
+      }
+    });
+  }
+
+  async start() {
+    try {
+      // Initialize if not already done
+      if (!this.container) {
+        await this.initialize();
+      }
+
+      // Start HTTP server
+      this.server = this.app.listen(this.port, () => {
+        this.logger.info('🎉 Smithers v2 server started successfully', {
+          port: this.port,
+          environment: process.env.NODE_ENV || 'development',
+          pid: process.pid,
+          endpoints: {
+            health: `http://localhost:${this.port}/health`,
+            webhook: `http://localhost:${this.port}/webhooks/hostaway`,
+            admin: `http://localhost:${this.port}/api/admin/stats`,
+            debug: `http://localhost:${this.port}/api/debug/conversations`
+          }
+        });
+
+        // Start background tasks
+        this.startBackgroundTasks();
+      });
+
+      // Handle server errors
+      this.server.on('error', (error) => {
+        this.logger.error('Server error', { error: error.message });
+        throw error;
+      });
+
+      return this.server;
+
+    } catch (error) {
+      this.logger.error('Failed to start server', { error: error.message });
+      throw error;
+    }
+  }
+
+  startBackgroundTasks() {
+    this.logger.info('Starting background tasks...');
+
+    // Auto-learning from conversation patterns
+    setInterval(async () => {
+      try {
+        this.logger.debug('Running automated learning...');
+        // This could integrate with your ML/learning use cases
+        // const learningUseCase = this.container.get('learningUseCase');
+        // await learningUseCase.execute();
+      } catch (error) {
+        this.logger.error('Background learning task failed', {
+          error: error.message
+        });
+      }
+    }, 60 * 60 * 1000); // Every hour
+
+    // Health monitoring
+    setInterval(async () => {
+      try {
+        const health = await this.container.healthCheck();
+        const unhealthyServices = Object.entries(health)
+          .filter(([, status]) => !status.healthy)
+          .map(([name]) => name);
+
+        if (unhealthyServices.length > 0) {
+          this.logger.warn('Unhealthy services detected', {
+            services: unhealthyServices
+          });
+        }
+      } catch (error) {
+        this.logger.error('Health check failed', {
+          error: error.message
+        });
+      }
+    }, 30 * 1000); // Every 30 seconds
+
+    this.logger.info('Background tasks started');
+  }
+
+  async shutdown() {
+    this.logger.info('Starting server shutdown...');
+
+    try {
+      // Stop accepting new requests
+      if (this.server) {
+        await new Promise((resolve) => {
+          this.server.close(resolve);
+        });
+        this.logger.info('HTTP server closed');
+      }
+
+      // Shutdown dependency container
+      if (this.container) {
+        await this.container.shutdown();
+        this.logger.info('Dependencies shut down');
+      }
+
+      this.logger.info('✅ Server shutdown completed gracefully');
+
+    } catch (error) {
+      this.logger.error('Error during shutdown', {
+        error: error.message
       });
     }
-
-    console.log("🔍 Evento procesando:", event);
-    console.log("📊 Datos extraídos:", {
-      reservationId: data.reservationId,
-      conversationId: data.conversationId,
-      messagePreview: data.message?.substring(0, 50)
-    });
-
-    // Procesar con el manejador mejorado
-    const result = await handleHostawayWebhook(event, data);
-
-    const processingTime = Date.now() - startTime;
-    console.log(`✅ Webhook procesado exitosamente en ${processingTime}ms`);
-
-    res.json({
-      success: true,
-      event,
-      processingTime,
-      result
-    });
-
-  } catch (error) {
-    const processingTime = Date.now() - startTime;
-    console.error("❌ Error procesando webhook de Hostaway:", error);
-    
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      processingTime,
-      timestamp: new Date().toISOString()
-    });
   }
-});
-
-// Resto de endpoints con middleware de verificación MongoDB
-app.get("/admin/stats", requireMongoDB, async (req, res) => {
-  try {
-    const Conversation = require("./models/conversation");
-    const SupportTicket = require("./models/SupportTicket");
-
-    const stats = await Promise.all([
-      Conversation.countDocuments(),
-      Conversation.aggregate([
-        { $unwind: "$messages" },
-        { $match: { "messages.role": "agent" } },
-        { $group: { 
-            _id: "$messages.metadata.source", 
-            count: { $sum: 1 } 
-          }
-        }
-      ]),
-      SupportTicket.countDocuments({ status: "open" }),
-      SupportTicket.aggregate([
-        { $group: { 
-            _id: "$priority", 
-            count: { $sum: 1 } 
-          }
-        }
-      ]),
-      Conversation.countDocuments({
-        lastActivity: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-      }),
-      Conversation.countDocuments({
-        "messages.metadata.hostaway": true
-      })
-    ]);
-
-    res.json({
-      totalConversations: stats[0],
-      responsesBySource: stats[1],
-      openTickets: stats[2],
-      ticketsByPriority: stats[3],
-      activeConversations24h: stats[4],
-      hostawayIntegratedConversations: stats[5],
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error("❌ Error obteniendo estadísticas:", error);
-    res.status(500).json({ error: "Error obteniendo estadísticas" });
-  }
-});
-
-// Endpoint de salud mejorado
-app.get("/health", async (req, res) => {
-  try {
-    // Verificar conexión a MongoDB
-    const mongoStatus = isMongoConnected && mongoose.connection.readyState === 1 ? "connected" : "disconnected";
-    
-    // Verificar OpenAI
-    let openaiStatus = "unknown";
-    try {
-      const { ask } = require("./services/gptService");
-      await ask("Test");
-      openaiStatus = "connected";
-    } catch {
-      openaiStatus = "error";
-    }
-
-    // Verificar conexión a Hostaway
-    let hostawayStatus = "unknown";
-    try {
-      await hostawayService.getAccessToken();
-      hostawayStatus = "connected";
-    } catch {
-      hostawayStatus = "error";
-    }
-
-    const isHealthy = mongoStatus === "connected" && openaiStatus === "connected" && hostawayStatus === "connected";
-
-    res.status(isHealthy ? 200 : 500).json({
-      status: isHealthy ? "healthy" : "unhealthy",
-      timestamp: new Date().toISOString(),
-      services: {
-        mongodb: {
-          status: mongoStatus,
-          readyState: mongoose.connection.readyState,
-          host: mongoose.connection.host,
-          name: mongoose.connection.name
-        },
-        openai: openaiStatus,
-        hostaway: hostawayStatus
-      },
-      version: process.env.npm_package_version || "1.0.0"
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: "unhealthy",
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// 🔹 ENDPOINTS DE DEBUG MEJORADOS
-app.get("/debug/conversations", async (req, res) => {
-  try {
-    const { debugConversations } = require("./services/conversationHistoryService");
-    const debug = await debugConversations();
-    
-    res.json({
-      debug,
-      mongoStatus: {
-        isConnected: isMongoConnected,
-        readyState: mongoose.connection.readyState,
-        host: mongoose.connection.host,
-        name: mongoose.connection.name
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/debug/test-save", requireMongoDB, async (req, res) => {
-  try {
-    const { saveConversation, ensureConnection } = require("./services/conversationHistoryService");
-    
-    // Asegurar conexión antes de la prueba
-    const connected = await ensureConnection();
-    if (!connected) {
-      return res.status(503).json({ error: "No se pudo conectar a MongoDB" });
-    }
-    
-    await saveConversation("debug-guest-123", "guest", "Mensaje de prueba desde debug");
-    await saveConversation("debug-guest-123", "agent", "Respuesta de prueba desde debug");
-    
-    res.json({ success: true, message: "Prueba de guardado completada" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔹 NUEVO: Endpoint para forzar reconexión
-app.post("/debug/reconnect-mongo", async (req, res) => {
-  try {
-    console.log("🔄 Forzando reconexión a MongoDB...");
-    await mongoose.disconnect();
-    const connected = await connectToMongoDB();
-    
-    res.json({
-      success: connected,
-      message: connected ? "Reconexión exitosa" : "Error en reconexión",
-      mongoState: mongoose.connection.readyState
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Middleware de manejo de errores global
-app.use((error, req, res, next) => {
-  console.error("❌ Error no manejado:", error);
-  
-  res.status(500).json({
-    success: false,
-    error: "Error interno del servidor",
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Graceful shutdown mejorado
-process.on('SIGTERM', async () => {
-  console.log('🔄 Cerrando servidor gracefully...');
-  
-  try {
-    await mongoose.connection.close();
-    console.log('✅ Conexión MongoDB cerrada');
-  } catch (error) {
-    console.error('❌ Error cerrando MongoDB:', error);
-  }
-  
-  process.exit(0);
-});
-
-// Inicializar servidor
-startServer().then(() => {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`🚀 Smithers v2 con integración Hostaway activo en puerto: ${PORT}`);
-    console.log(`📊 Panel de estadísticas: http://localhost:${PORT}/admin/stats`);
-    console.log(`🏥 Estado del sistema: http://localhost:${PORT}/health`);
-    console.log(`🔧 Debug conversaciones: http://localhost:${PORT}/debug/conversations`);
-    console.log(`🔄 Reconectar MongoDB: POST http://localhost:${PORT}/debug/reconnect-mongo`);
-  });
-}).catch(error => {
-  console.error("💥 Error iniciando servidor:", error);
-  process.exit(1);
-});
+}
