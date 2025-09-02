@@ -1,4 +1,4 @@
-// src/application/usecases/GenerateResponseUseCase.js
+// src/application/usecases/GenerateResponseUseCase.js - Con import correcto
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class GenerateResponseUseCase {
@@ -203,3 +203,5 @@ class GenerateResponseUseCase {
     }
   }
 }
+
+module.exports = { GenerateResponseUseCase };

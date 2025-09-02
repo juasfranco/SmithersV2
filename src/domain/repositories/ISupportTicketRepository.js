@@ -33,10 +33,4 @@ class ISupportTicketRepository {
   }
 }
 
-module.exports = {
-  IConversationRepository,
-  IReservationRepository,
-  IListingRepository,
-  IFAQRepository,
-  ISupportTicketRepository
-};
+module.exports = {ISupportTicketRepository};

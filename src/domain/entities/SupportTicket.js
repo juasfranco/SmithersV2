@@ -100,10 +100,4 @@ class SupportTicket {
   }
 }
 
-module.exports = {
-  Conversation,
-  Reservation,
-  Listing,
-  FAQ,
-  SupportTicket
-};
+module.exports = {SupportTicket};

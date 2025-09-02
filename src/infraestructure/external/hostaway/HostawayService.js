@@ -1,6 +1,6 @@
-// src/infrastructure/external/hostaway/HostawayService.js
+// src/infraestructure/external/hostaway/HostawayService.js
 const axios = require('axios');
-const { TokenManager } = require('../../security/TokenManager');
+const { TokenManager } = require('../../secutiry/TokenManager');
 const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 
 class HostawayService {
@@ -253,8 +253,4 @@ class HostawayService {
   }
 }
 
-module.exports = {
-  DependencyContainer,
-  OpenAIService,
-  HostawayService
-};
+module.exports = { HostawayService };

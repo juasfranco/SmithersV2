@@ -1,5 +1,4 @@
-// src/presentation/middleware/AuthMiddleware.js
-
+// src/presentation/middleware/AuthMiddleware.js - Con import correcto
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class AuthMiddleware {

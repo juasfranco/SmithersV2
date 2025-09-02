@@ -1,5 +1,4 @@
-// src/presentation/controllers/HealthController.js
-
+// src/presentation/controllers/HealthController.js - Con import correcto
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class HealthController {
@@ -90,12 +89,8 @@ class HealthController {
 
   async checkHostaway() {
     try {
-      const isConnected = await this.hostawayService.testConnection();
-      
-      return {
-        healthy: isConnected,
-        status: isConnected ? 'connected' : 'disconnected'
-      };
+      const health = await this.hostawayService.healthCheck();
+      return health;
     } catch (error) {
       return {
         healthy: false,
@@ -106,12 +101,8 @@ class HealthController {
 
   async checkAI() {
     try {
-      const testResponse = await this.aiService.ask('Test connection');
-      
-      return {
-        healthy: !!testResponse && testResponse.length > 0,
-        status: 'connected'
-      };
+      const health = await this.aiService.healthCheck();
+      return health;
     } catch (error) {
       return {
         healthy: false,

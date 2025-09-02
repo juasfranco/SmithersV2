@@ -65,9 +65,4 @@ class WebhookDto {
   }
 }
 
-module.exports = {
-  ProcessWebhookUseCase,
-  GenerateResponseUseCase,
-  SendNotificationUseCase,
-  WebhookDto
-};
+module.exports = { WebhookDto };

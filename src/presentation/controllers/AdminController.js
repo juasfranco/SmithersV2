@@ -1,5 +1,4 @@
-// src/presentation/controllers/AdminController.js
-
+// src/presentation/controllers/AdminController.js - Con import correcto
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class AdminController {

@@ -1,4 +1,4 @@
-/ src/infraestructure/database/mongodb/AdditionalRepositories.js
+// src/infraestructure/database/mongodb/AdditionalRepositories.js
 const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 const { IFAQRepository } = require('../../../domain/repositories/IFAQRepository');
 const { ISupportTicketRepository } = require('../../../domain/repositories/ISupportTicketRepository');

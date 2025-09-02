@@ -1,5 +1,4 @@
 // src/application/usecases/SendNotificationUseCase.js
-
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class SendNotificationUseCase {
@@ -114,3 +113,5 @@ class SendNotificationUseCase {
     }
   }
 }
+
+module.exports = { SendNotificationUseCase };

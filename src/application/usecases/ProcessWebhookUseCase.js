@@ -1,5 +1,5 @@
-// src/application/usecases/ProcessWebhookUseCase.js
-const { Validator } = require('../../infrastructure/security/Validator');
+// src/application/usecases/ProcessWebhookUseCase.js - Con import correcto
+const { Validator } = require('../../infraestructure/secutiry/Validator');
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class ProcessWebhookUseCase {
@@ -176,3 +176,5 @@ class ProcessWebhookUseCase {
     };
   }
 }
+
+module.exports = { ProcessWebhookUseCase };

@@ -1,4 +1,4 @@
-// src/infrastructure/database/mongodb/models/ConversationModel.js
+// src/infraestructure/database/models/ConversationModel.js
 const mongoose = require('mongoose');
 
 const ConversationSchema = new mongoose.Schema({

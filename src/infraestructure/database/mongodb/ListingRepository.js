@@ -1,8 +1,8 @@
-// src/infrastructure/database/mongodb/ListingRepository.js
+// src/infraestructure/database/mongodb/ListingRepository.js
+const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 const { IListingRepository } = require('../../../domain/repositories/IListingRepository');
 const { Listing } = require('../../../domain/entities/Listing');
-const ListingModel = require('./models/ListingModel');
-const { SecureLogger } = require('../../../shared/logger/SecureLogger');
+const ListingModel = require('../models/ListingModel');
 
 class MongoListingRepository extends IListingRepository {
   constructor() {
@@ -153,3 +153,5 @@ class MongoListingRepository extends IListingRepository {
     };
   }
 }
+
+module.exports = { MongoListingRepository };

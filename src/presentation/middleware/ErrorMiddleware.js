@@ -1,5 +1,4 @@
-// src/presentation/middleware/ErrorMiddleware.js
-
+// src/presentation/middleware/ErrorMiddleware.js - Con import correcto
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class ErrorMiddleware {
@@ -50,12 +49,3 @@ class ErrorMiddleware {
     };
   }
 }
-
-module.exports = {
-  WebhookController,
-  HealthController,
-  AdminController,
-  AuthMiddleware,
-  ValidationMiddleware,
-  ErrorMiddleware
-};

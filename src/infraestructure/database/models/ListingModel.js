@@ -12,9 +12,3 @@ ListingSchema.index({ Name: 1 });
 ListingSchema.index({ City: 1 });
 
 module.exports = mongoose.model("HostAwayListings", ListingSchema, "HostAwayListings");
-
-module.exports = {
-  DatabaseConnection,
-  MongoConversationRepository,
-  MongoListingRepository
-};
