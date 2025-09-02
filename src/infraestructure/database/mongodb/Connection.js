@@ -139,3 +139,5 @@ class DatabaseConnection {
     await this.disconnect();
   }
 }
+
+module.exports = { DatabaseConnection };

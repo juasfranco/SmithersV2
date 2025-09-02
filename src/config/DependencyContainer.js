@@ -6,7 +6,7 @@ const { SecurityHeaders } = require('../infraestructure/secutiry/SecurityHeaders
 const { SecureLogger } = require('../shared/logger/SecureLogger');
 
 // Infrastructure - Database
-const { DatabaseConnection } = require('../infraestructure/database/mongodb/Connection');
+const  DatabaseConnection  = require('../infraestructure/database/mongodb/Connection');
 const { MongoConversationRepository } = require('../infraestructure/database/mongodb/ConversationRepository');
 const { MongoListingRepository } = require('../infraestructure/database/mongodb/ListingRepository');
 
