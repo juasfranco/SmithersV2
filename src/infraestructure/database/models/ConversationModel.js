@@ -5,8 +5,8 @@ const ConversationSchema = new mongoose.Schema({
   guestId: {
     type: String,
     required: true,
-    index: true,
     maxLength: 255
+    // REMOVED: index: true (se define abajo para evitar duplicados)
   },
   messages: [
     {
@@ -43,8 +43,8 @@ const ConversationSchema = new mongoose.Schema({
   ],
   lastActivity: {
     type: Date,
-    default: Date.now,
-    index: true
+    default: Date.now
+    // REMOVED: index: true (se define abajo para evitar duplicados)
   },
   summary: {
     totalMessages: { type: Number, default: 0 },
@@ -56,7 +56,8 @@ const ConversationSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound indexes for better performance
+// Índices definidos explícitamente (sin duplicados)
+ConversationSchema.index({ guestId: 1 });
 ConversationSchema.index({ guestId: 1, lastActivity: -1 });
 ConversationSchema.index({ lastActivity: -1 });
 ConversationSchema.index({ 'summary.needsHumanSupport': 1 });

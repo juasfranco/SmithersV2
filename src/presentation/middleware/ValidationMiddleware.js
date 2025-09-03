@@ -1,5 +1,5 @@
 // src/presentation/middleware/ValidationMiddleware.js
-const { Validator } = require('../../infrastructure/security/Validator');
+const { Validator } = require('../../infraestructure/secutiry/Validator'); // Corregido: infraestructure (con "e")
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class ValidationMiddleware {
@@ -50,3 +50,5 @@ class ValidationMiddleware {
     return sanitized;
   }
 }
+
+module.exports = { ValidationMiddleware };

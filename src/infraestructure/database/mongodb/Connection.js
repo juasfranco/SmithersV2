@@ -19,11 +19,11 @@ class DatabaseConnection {
         maxPoolSize: 10,
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
-        bufferCommands: false,
-        bufferMaxEntries: 0,
+        // REMOVED: bufferCommands and bufferMaxEntries (obsolete options)
         autoIndex: process.env.NODE_ENV !== 'production', // Disable in production
         retryWrites: true,
-        retryReads: true
+        retryReads: true,
+        connectTimeoutMS: 30000
       };
 
       await mongoose.connect(uri, options);

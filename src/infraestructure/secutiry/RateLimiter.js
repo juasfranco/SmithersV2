@@ -1,9 +1,12 @@
-// src/infrastructure/security/RateLimiter.js
+// src/infraestructure/secutiry/RateLimiter.js
+const { SecureLogger } = require('../../shared/logger/SecureLogger');
+
 class RateLimiter {
   constructor() {
     this.requests = new Map(); // In production, use Redis
     this.windowMs = 15 * 60 * 1000; // 15 minutes
     this.maxRequests = 100; // Max requests per window
+    this.logger = new SecureLogger();
   }
 
   isAllowed(identifier) {
@@ -78,4 +81,22 @@ class RateLimiter {
       }
     }
   }
+
+  // Health check method
+  healthCheck() {
+    return {
+      healthy: true,
+      activeConnections: this.requests.size,
+      windowMs: this.windowMs,
+      maxRequests: this.maxRequests
+    };
+  }
+
+  // Shutdown method
+  shutdown() {
+    this.requests.clear();
+    this.logger.info('RateLimiter shutdown completed');
+  }
 }
+
+module.exports = { RateLimiter };
