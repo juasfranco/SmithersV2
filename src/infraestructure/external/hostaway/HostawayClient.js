@@ -2,9 +2,10 @@
 const axios = require('axios');
 
 class HostawayClient {
-  constructor(baseURL, timeout = 60000) {
+  constructor(baseURL, timeout = 80000) {
     this.baseURL = baseURL;
     this.timeout = timeout;
+    this.token = null;
     this.client = axios.create({
       baseURL,
       timeout,
@@ -13,6 +14,11 @@ class HostawayClient {
         'Cache-Control': 'no-cache'
       }
     });
+  }
+
+  setToken(token) {
+    this.token = token;
+    this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   }
 
   async request(config) {

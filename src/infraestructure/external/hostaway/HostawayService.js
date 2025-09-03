@@ -2,6 +2,7 @@
 const axios = require('axios');
 const { TokenManager } = require('../../secutiry/TokenManager');
 const { SecureLogger } = require('../../../shared/logger/SecureLogger');
+const { HostawayClient } = require('./HostawayClient');
 
 class HostawayService {
   constructor() {
@@ -13,8 +14,17 @@ class HostawayService {
 
   async initialize() {
     try {
-      await this.getAccessToken();
+      const token = await this.getAccessToken();
+      if (!token) {
+        throw new Error('Failed to obtain Hostaway token');
+      }
+      
+      // Create Hostaway client with the token
+      this.client = new HostawayClient(this.baseURL);
+      this.client.setToken(token);
+      
       this.initialized = true;
+      this.logger.info('Hostaway token obtained successfully');
       this.logger.info('Hostaway service initialized');
       return true;
     } catch (error) {
@@ -26,16 +36,23 @@ class HostawayService {
   }
 
   async getAccessToken() {
-    // Check if we have a valid cached token
-    const cachedToken = this.tokenManager.retrieve('hostaway_token');
-    if (cachedToken) {
-      return cachedToken;
-    }
-
     try {
+      // Check if we have a valid cached token
+      const cachedToken = this.tokenManager.retrieve('hostaway_token');
+      if (cachedToken && this.tokenManager.isValid('hostaway_token')) {
+        return cachedToken;
+      }
+
       this.logger.debug('Requesting new Hostaway token');
 
-      const formData = `grant_type=client_credentials&client_id=${process.env.HOSTAWAY_ACCOUNT_ID}&client_secret=${process.env.HOSTAWAY_CLIENT_SECRET}&scope=general`;
+      const accountId = process.env.HOSTAWAY_ACCOUNT_ID;
+      const clientSecret = process.env.HOSTAWAY_CLIENT_SECRET;
+
+      if (!accountId || !clientSecret) {
+        throw new Error('Hostaway credentials not configured');
+      }
+
+      const formData = `grant_type=client_credentials&client_id=${accountId}&client_secret=${clientSecret}&scope=general`;
 
       const response = await axios({
         method: 'POST',
@@ -72,25 +89,23 @@ class HostawayService {
 
   async apiRequest(method, endpoint, data = null) {
     try {
-      const token = await this.getAccessToken();
-      
-      const config = {
-        method,
-        url: `${this.baseURL}${endpoint}`,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache'
-        },
-        timeout: 60000
-      };
-
-      if (data) {
-        config.data = data;
+      if (!this.client) {
+        throw new Error('Hostaway client not initialized');
       }
 
-      const response = await axios(config);
-      return response.data;
+      // Make sure endpoint starts with a slash
+      const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      
+      let response;
+      if (method === 'GET') {
+        response = await this.client.get(normalizedEndpoint);
+      } else if (method === 'POST') {
+        response = await this.client.post(normalizedEndpoint, data);
+      } else {
+        throw new Error(`Unsupported HTTP method: ${method}`);
+      }
+
+      return response;
 
     } catch (error) {
       // If token expired, invalidate and retry once
@@ -112,16 +127,15 @@ class HostawayService {
 
   async testConnection() {
     try {
-      const response = await this.apiRequest('GET', '/me');
+      // First, try with the listings endpoint
+      await this.apiRequest('GET', '/listings?limit=1');
       return true;
     } catch (error) {
-      // Try with listings endpoint if /me fails
-      try {
-        await this.apiRequest('GET', '/listings?limit=1');
-        return true;
-      } catch {
-        return false;
-      }
+      this.logger.error('Failed to connect to Hostaway API', {
+        error: error.message,
+        response: error.response?.data
+      });
+      return false;
     }
   }
 

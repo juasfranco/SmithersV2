@@ -53,18 +53,14 @@ class Server {
     this.logger.debug('Configuring middleware...');
 
     // Security headers
-    this.app.use(SecurityHeaders.getMiddleware());
-    this.app.use(helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", "data:"],
-          connectSrc: ["'self'"]
-        }
-      }
-    }));
+    this.app.use((req, res, next) => {
+      const secureHeaders = SecurityHeaders.getSecureHeaders();
+      Object.entries(secureHeaders).forEach(([key, value]) => {
+        res.setHeader(key, value);
+      });
+      next();
+    });
+    this.app.use(helmet());
 
     // CORS configuration
     const corsOptions = {
