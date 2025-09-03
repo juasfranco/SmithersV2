@@ -8,6 +8,19 @@ class GenerateResponseUseCase {
     conversationRepository,
     aiService
   }) {
+    // Validate required dependencies
+    if (!listingRepository || !faqRepository || !conversationRepository || !aiService) {
+      throw new Error('Missing required dependencies in GenerateResponseUseCase');
+    }
+
+    // Validate repository interfaces
+    if (typeof listingRepository.findByMapId !== 'function' ||
+        typeof faqRepository.findAll !== 'function' ||
+        typeof conversationRepository.findByGuestId !== 'function' ||
+        typeof aiService.detectField !== 'function') {
+      throw new Error('Invalid repository or service implementation');
+    }
+
     this.listingRepository = listingRepository;
     this.faqRepository = faqRepository;
     this.conversationRepository = conversationRepository;
@@ -15,9 +28,14 @@ class GenerateResponseUseCase {
     this.logger = new SecureLogger();
   }
 
-  async execute({ message, listingMapId, guestId, reservationId, context = null }) {
+  async execute({ guestId, reservationId, listingMapId, message }) {
     const startTime = Date.now();
     
+    // Validate input parameters
+    if (!guestId || !reservationId || !message) {
+      throw new Error('Missing required parameters');
+    }
+
     try {
       this.logger.debug('Generating response', { 
         guestId, 
@@ -37,18 +55,30 @@ class GenerateResponseUseCase {
       // 3. Try to find answer in listing data
       let response = null;
       let source = 'unknown';
+      let confidence = 0;
+      let requiresEscalation = false;
+      let escalationReason = null;
 
       if (listingMapId) {
         const listing = await this.listingRepository.findByMapId(listingMapId);
         if (listing) {
           const listingAnswer = this.findAnswerInListing(listing, detectedField, message);
           if (listingAnswer) {
-            response = await this.aiService.generateFriendlyResponse(message, listingAnswer, conversationHistory);
+            const aiResponse = await this.aiService.generateFriendlyResponse(message, listingAnswer, conversationHistory);
+            response = aiResponse.response;
+            confidence = aiResponse.confidence;
             source = 'listing';
+            
+            // Check if confidence is too low
+            if (confidence < 0.7) {
+              requiresEscalation = true;
+              escalationReason = 'Low confidence in AI response';
+            }
             
             this.logger.info('Answer found in listing data', { 
               field: detectedField,
-              listingId: listing.id 
+              listingId: listing.id,
+              confidence
             });
           }
         }
@@ -58,19 +88,40 @@ class GenerateResponseUseCase {
       if (!response) {
         const faqAnswer = await this.searchFAQs(message, conversationHistory);
         if (faqAnswer) {
-          response = await this.aiService.generateFriendlyResponse(message, faqAnswer, conversationHistory);
+          const aiResponse = await this.aiService.generateFriendlyResponse(message, faqAnswer, conversationHistory);
+          response = aiResponse.response;
+          confidence = aiResponse.confidence;
           source = 'faq';
           
-          this.logger.info('Answer found in FAQs');
+          if (confidence < 0.7) {
+            requiresEscalation = true;
+            escalationReason = 'Low confidence in FAQ response';
+          }
+          
+          this.logger.info('Answer found in FAQs', { confidence });
         }
       }
 
       // 5. If still no answer, use AI fallback
       if (!response) {
-        response = await this.aiService.generateFallbackResponse(message, conversationHistory, context);
+        const context = {
+          guestId,
+          reservationId,
+          listingMapId,
+          detectedField
+        };
+        const fallbackResponse = await this.aiService.generateFallbackResponse(message, conversationHistory, context);
+        response = fallbackResponse.response;
+        confidence = fallbackResponse.confidence;
         source = 'fallback';
+        requiresEscalation = true;
+        escalationReason = 'No answer found in knowledge base';
         
-        this.logger.warn('Using AI fallback response', { guestId, detectedField });
+        this.logger.warn('Using AI fallback response', { 
+          guestId, 
+          detectedField,
+          confidence 
+        });
         
         // Notify support for fallback responses
         await this.notifySupport({
@@ -79,7 +130,7 @@ class GenerateResponseUseCase {
           listingMapId,
           question: message,
           response,
-          reason: 'No answer found in knowledge base'
+          reason: escalationReason
         });
       }
 
@@ -88,7 +139,9 @@ class GenerateResponseUseCase {
       this.logger.info('Response generated', {
         source,
         processingTime,
-        responseLength: response.length
+        responseLength: response.length,
+        requiresEscalation,
+        confidence
       });
 
       return {
@@ -96,7 +149,9 @@ class GenerateResponseUseCase {
         source,
         detectedField,
         processingTime,
-        confidence: this.calculateConfidence(source)
+        confidence,
+        requiresEscalation,
+        escalationReason
       };
 
     } catch (error) {
@@ -106,28 +161,47 @@ class GenerateResponseUseCase {
         messagePreview: message.substring(0, 50)
       });
       
-      // Return a safe fallback response
-      return {
+      // Return a safe fallback response with escalation
+      const errorResponse = {
         response: 'Disculpa, estoy experimentando dificultades técnicas. Un miembro de nuestro equipo te contactará pronto para ayudarte.',
         source: 'error',
         detectedField: null,
         processingTime: Date.now() - startTime,
-        confidence: 0
+        confidence: 0,
+        requiresEscalation: true,
+        escalationReason: `Technical error: ${error.message}`
       };
+
+      // Notify support about the error
+      await this.notifySupport({
+        guestId,
+        reservationId,
+        listingMapId,
+        question: message,
+        response: errorResponse.response,
+        reason: errorResponse.escalationReason,
+        error: error.message
+      });
+
+      return errorResponse;
     }
   }
 
   findAnswerInListing(listing, detectedField, userQuestion) {
+    if (!listing || !detectedField || !userQuestion) {
+      return null;
+    }
+
     const fieldMappings = {
-      'checkintime': listing.checkInTime,
-      'checkouttime': listing.checkOutTime,
-      'wifi': listing.wifiUsername,
-      'wifipassword': listing.wifiPassword,
-      'address': listing.address,
-      'doorcode': listing.doorCode,
-      'contact': listing.contactPhone,
-      'rules': listing.houseRules,
-      'instructions': listing.specialInstructions
+      'checkintime': listing.checkInTime || null,
+      'checkouttime': listing.checkOutTime || null,
+      'wifi': listing.wifiUsername || null,
+      'wifipassword': listing.wifiPassword || null,
+      'address': listing.address || null,
+      'doorcode': listing.doorCode || null,
+      'contact': listing.contactPhone || null,
+      'rules': listing.houseRules || null,
+      'instructions': listing.specialInstructions || null
     };
 
     // Try exact field match first
@@ -160,11 +234,17 @@ class GenerateResponseUseCase {
     return null;
   }
 
-  async searchFAQs(question, conversationHistory) {
+  async searchFAQs(question, conversationHistory = []) {
     try {
+      if (!question) {
+        this.logger.warn('Empty question provided to searchFAQs');
+        return null;
+      }
+
       const faqs = await this.faqRepository.findAll();
       
       if (!faqs || faqs.length === 0) {
+        this.logger.info('No FAQs found in repository');
         return null;
       }
 
