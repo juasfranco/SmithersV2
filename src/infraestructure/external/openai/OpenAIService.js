@@ -1,4 +1,4 @@
-// src/infrastructure/external/openai/OpenAIService.js
+// src/infraestructure/external/openai/OpenAIService.js
 const { OpenAI } = require('openai');
 const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 
@@ -116,10 +116,19 @@ Respuesta:
 
   async healthCheck() {
     try {
-      await this.ask('Test connection');
+      await this.ask('Test connection', { maxTokens: 10 });
       return { healthy: true, status: 'connected' };
     } catch (error) {
       return { healthy: false, error: error.message };
     }
   }
+
+  // Shutdown method
+  shutdown() {
+    this.logger.info('OpenAI service shutdown');
+    // No specific cleanup needed for OpenAI client
+  }
 }
+
+
+module.exports = { OpenAIService };

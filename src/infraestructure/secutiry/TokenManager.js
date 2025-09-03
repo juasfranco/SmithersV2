@@ -15,10 +15,13 @@ class TokenManager {
       expiresAt
     });
 
-    // Auto-cleanup expired tokens
-    setTimeout(() => {
-      this.tokens.delete(key);
-    }, expiryMs);
+    // Auto-cleanup expired tokens - FIX para el timeout warning
+    // Solo configurar timeout si es menor a 24 horas para evitar overflow
+    if (expiryMs <= 24 * 60 * 60 * 1000) {
+      setTimeout(() => {
+        this.tokens.delete(key);
+      }, expiryMs);
+    }
 
     return { expiresAt };
   }

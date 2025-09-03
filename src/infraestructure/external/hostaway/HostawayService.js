@@ -51,8 +51,12 @@ class HostawayService {
       const token = response.data.access_token;
       const expiresIn = response.data.expires_in * 1000; // Convert to ms
       
-      // Store token with expiration
-      this.tokenManager.store('hostaway_token', token, expiresIn - 30000); // 30s buffer
+      // FIX: Limitar el tiempo de expiración para evitar overflow
+      const maxExpiryMs = 24 * 60 * 60 * 1000; // 24 horas máximo
+      const actualExpiryMs = Math.min(expiresIn - 30000, maxExpiryMs); // 30s buffer
+      
+      // Store token with safe expiration
+      this.tokenManager.store('hostaway_token', token, actualExpiryMs);
       
       this.logger.info('Hostaway token obtained successfully');
       return token;
