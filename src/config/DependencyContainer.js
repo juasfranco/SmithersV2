@@ -143,7 +143,8 @@ class DependencyContainer {
       listingRepository: this.get('listingRepository'),
       faqRepository: this.get('faqRepository'),
       conversationRepository: this.get('conversationRepository'),
-      aiService: this.get('aiService')
+      aiService: this.get('aiService'),
+      hostawayService: this.get('hostawayService')
     });
     this.dependencies.set('generateResponseUseCase', generateResponseUseCase);
 
