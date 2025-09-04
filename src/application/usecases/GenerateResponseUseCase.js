@@ -30,6 +30,11 @@ class GenerateResponseUseCase {
 
   async execute({ guestId, reservationId, listingMapId, message }) {
     const startTime = Date.now();
+    let response = null;
+    let source = 'unknown';
+    let confidence = 0;
+    let requiresEscalation = false;
+    let escalationReason = null;
     
     // Validate input parameters
     if (!guestId || !reservationId || !message) {
@@ -37,101 +42,159 @@ class GenerateResponseUseCase {
     }
 
     try {
-      this.logger.debug('Generating response', { 
+      this.logger.debug('Starting response generation process', { 
         guestId, 
         listingMapId,
         messagePreview: message.substring(0, 50) 
       });
 
-      // 1. Get conversation history for context
+      // PASO 1: Obtener historial de conversación para contexto
+      this.logger.debug('Step 1: Getting conversation history');
       const conversation = await this.conversationRepository.findByGuestId(guestId);
       const conversationHistory = conversation ? conversation.getRecentMessages(5) : [];
+      
+      this.logger.debug('Conversation history retrieved', {
+        historyLength: conversationHistory.length
+      });
 
-      // 2. Detect what the user is asking about
+      // PASO 2: Detectar el campo/tema de la pregunta usando AI
+      this.logger.debug('Step 2: Detecting question topic using AI');
       const detectedField = await this.aiService.detectField(message, conversationHistory);
       
-      this.logger.debug('Field detected', { detectedField });
+      this.logger.debug('Field detected by AI', { 
+        detectedField,
+        confidence: confidence 
+      });
 
-      // 3. Try to find answer in listing data
-      let response = null;
-      let source = 'unknown';
-      let confidence = 0;
-      let requiresEscalation = false;
-      let escalationReason = null;
-
+      // PASO 3: Buscar respuesta en datos del listing
+      // PASO 3: Buscar respuesta en datos del listing
+      this.logger.debug('Step 3: Searching in listing data');
       if (listingMapId) {
-        const listing = await this.listingRepository.findByMapId(listingMapId);
-        if (listing) {
-          const listingAnswer = this.findAnswerInListing(listing, detectedField, message);
-          if (listingAnswer) {
-            const aiResponse = await this.aiService.generateFriendlyResponse(message, listingAnswer, conversationHistory);
+        try {
+          const listing = await this.listingRepository.findByMapId(listingMapId);
+          if (listing) {
+            const listingAnswer = this.findAnswerInListing(listing, detectedField, message);
+            if (listingAnswer) {
+              // Genera una respuesta amigable basada en los datos del listing
+              const aiResponse = await this.aiService.generateFriendlyResponse(
+                message, 
+                listingAnswer.answer,
+                conversationHistory
+              );
+
+              response = aiResponse.response;
+              confidence = listingAnswer.confidence * aiResponse.confidence;
+              source = listingAnswer.source;
+              
+              if (confidence < 0.7) {
+                requiresEscalation = true;
+                escalationReason = 'Low confidence in listing data response';
+              }
+              
+              this.logger.info('Answer found in listing data', { 
+                field: detectedField,
+                listingId: listing.id,
+                confidence,
+                source: listingAnswer.source
+              });
+            } else {
+              this.logger.debug('No matching information found in listing data');
+            }
+          }
+        } catch (error) {
+          this.logger.error('Error accessing listing data', {
+            error: error.message,
+            listingMapId
+          });
+        }
+      }
+
+      // PASO 4: Si no encuentra en listing, buscar en FAQs
+      if (!response) {
+        this.logger.debug('Step 4: Searching in FAQs');
+        try {
+          const faqAnswer = await this.searchFAQs(message, conversationHistory);
+          if (faqAnswer) {
+            const aiResponse = await this.aiService.generateFriendlyResponse(
+              message, 
+              faqAnswer, 
+              conversationHistory
+            );
+            
             response = aiResponse.response;
             confidence = aiResponse.confidence;
-            source = 'listing';
+            source = 'faq';
             
-            // Check if confidence is too low
             if (confidence < 0.7) {
               requiresEscalation = true;
-              escalationReason = 'Low confidence in AI response';
+              escalationReason = 'Low confidence in FAQ response';
             }
             
-            this.logger.info('Answer found in listing data', { 
-              field: detectedField,
-              listingId: listing.id,
-              confidence
+            this.logger.info('Answer found in FAQs', { 
+              confidence,
+              source: 'faq'
             });
+          } else {
+            this.logger.debug('No matching FAQ found');
           }
+        } catch (error) {
+          this.logger.error('Error searching FAQs', {
+            error: error.message
+          });
         }
       }
 
-      // 4. If not found in listing, search FAQs
+      // PASO 5: Si aún no hay respuesta, usar AI como fallback
       if (!response) {
-        const faqAnswer = await this.searchFAQs(message, conversationHistory);
-        if (faqAnswer) {
-          const aiResponse = await this.aiService.generateFriendlyResponse(message, faqAnswer, conversationHistory);
-          response = aiResponse.response;
-          confidence = aiResponse.confidence;
-          source = 'faq';
-          
-          if (confidence < 0.7) {
-            requiresEscalation = true;
-            escalationReason = 'Low confidence in FAQ response';
-          }
-          
-          this.logger.info('Answer found in FAQs', { confidence });
-        }
-      }
+        this.logger.debug('Step 5: Using AI fallback');
+        try {
+          // Preparar contexto enriquecido para el AI
+          const context = {
+            guestId,
+            reservationId,
+            listingMapId,
+            detectedField,
+            conversationHistory: conversationHistory.length,
+            attemptedSources: ['listing', 'faq']
+          };
 
-      // 5. If still no answer, use AI fallback
-      if (!response) {
-        const context = {
-          guestId,
-          reservationId,
-          listingMapId,
-          detectedField
-        };
-        const fallbackResponse = await this.aiService.generateFallbackResponse(message, conversationHistory, context);
-        response = fallbackResponse.response;
-        confidence = fallbackResponse.confidence;
-        source = 'fallback';
-        requiresEscalation = true;
-        escalationReason = 'No answer found in knowledge base';
-        
-        this.logger.warn('Using AI fallback response', { 
-          guestId, 
-          detectedField,
-          confidence 
-        });
-        
-        // Notify support for fallback responses
-        await this.notifySupport({
-          guestId,
-          reservationId,
-          listingMapId,
-          question: message,
-          response,
-          reason: escalationReason
-        });
+          // Generar respuesta usando AI como último recurso
+          const fallbackResponse = await this.aiService.generateFallbackResponse(
+            message, 
+            conversationHistory, 
+            context
+          );
+
+          response = fallbackResponse.response;
+          confidence = fallbackResponse.confidence;
+          source = 'ai-fallback';
+          requiresEscalation = true;
+          escalationReason = 'No answer found in knowledge bases (listing/FAQ)';
+          
+          this.logger.warn('Using AI fallback response', { 
+            guestId, 
+            detectedField,
+            confidence,
+            source
+          });
+          
+          // Notificar a soporte cuando se usa fallback
+          await this.notifySupport({
+            guestId,
+            reservationId,
+            listingMapId,
+            question: message,
+            response,
+            reason: escalationReason,
+            detectedField,
+            confidence
+          });
+        } catch (error) {
+          this.logger.error('Error generating AI fallback response', {
+            error: error.message
+          });
+          throw error; // Let the error handler create the final fallback response
+        }
       }
 
       const processingTime = Date.now() - startTime;
@@ -192,43 +255,124 @@ class GenerateResponseUseCase {
       return null;
     }
 
-    const fieldMappings = {
-      'checkintime': listing.checkInTime || null,
-      'checkouttime': listing.checkOutTime || null,
-      'wifi': listing.wifiUsername || null,
-      'wifipassword': listing.wifiPassword || null,
-      'address': listing.address || null,
-      'doorcode': listing.doorCode || null,
-      'contact': listing.contactPhone || null,
-      'rules': listing.houseRules || null,
-      'instructions': listing.specialInstructions || null
+    // Estructura jerárquica de campos y sus aliases
+    const fieldHierarchy = {
+      checkIn: {
+        priority: 1,
+        fields: ['checkInTime', 'checkInInstructions'],
+        aliases: ['check in', 'checkin', 'arrival', 'llegada', 'entrada'],
+        getValue: () => ({
+          value: `Check-in time: ${listing.checkInTime}\nInstructions: ${listing.checkInInstructions || 'No special instructions'}`,
+          confidence: 0.9
+        })
+      },
+      checkOut: {
+        priority: 1,
+        fields: ['checkOutTime', 'checkOutInstructions'],
+        aliases: ['check out', 'checkout', 'departure', 'salida'],
+        getValue: () => ({
+          value: `Check-out time: ${listing.checkOutTime}\nInstructions: ${listing.checkOutInstructions || 'No special instructions'}`,
+          confidence: 0.9
+        })
+      },
+      wifi: {
+        priority: 2,
+        fields: ['wifiUsername', 'wifiPassword'],
+        aliases: ['wifi', 'internet', 'connection', 'network'],
+        getValue: () => ({
+          value: `WiFi Network: ${listing.wifiUsername}\nPassword: ${listing.wifiPassword}`,
+          confidence: 0.95
+        })
+      },
+      access: {
+        priority: 1,
+        fields: ['doorCode', 'accessInstructions'],
+        aliases: ['door', 'code', 'access', 'entry', 'acceso', 'puerta', 'código'],
+        getValue: () => ({
+          value: `Door code: ${listing.doorCode}\n${listing.accessInstructions || ''}`,
+          confidence: 0.9
+        })
+      },
+      location: {
+        priority: 2,
+        fields: ['address', 'directions'],
+        aliases: ['address', 'location', 'dirección', 'ubicación'],
+        getValue: () => ({
+          value: `Address: ${listing.address}\n${listing.directions || ''}`,
+          confidence: 0.9
+        })
+      },
+      rules: {
+        priority: 3,
+        fields: ['houseRules'],
+        aliases: ['rules', 'regulations', 'reglas', 'normas'],
+        getValue: () => ({
+          value: listing.houseRules || 'No specific house rules provided.',
+          confidence: 0.85
+        })
+      },
+      amenities: {
+        priority: 4,
+        fields: ['amenities'],
+        aliases: ['amenities', 'facilities', 'servicios'],
+        getValue: () => ({
+          value: listing.amenities ? JSON.stringify(listing.amenities, null, 2) : 'No amenities information available.',
+          confidence: 0.8
+        })
+      },
+      contact: {
+        priority: 1,
+        fields: ['contactPhone', 'emergencyContact'],
+        aliases: ['contact', 'phone', 'emergency', 'contacto', 'teléfono', 'emergencia'],
+        getValue: () => ({
+          value: `Contact Phone: ${listing.contactPhone}\nEmergency: ${listing.emergencyContact || listing.contactPhone}`,
+          confidence: 0.95
+        })
+      }
     };
 
-    // Try exact field match first
-    const normalizedField = detectedField.toLowerCase().replace(/[^a-z]/g, '');
-    if (fieldMappings[normalizedField]) {
-      return fieldMappings[normalizedField];
-    }
+    const normalizedQuestion = userQuestion.toLowerCase();
+    const normalizedField = detectedField.toLowerCase();
 
-    // Try partial matches
-    for (const [key, value] of Object.entries(fieldMappings)) {
-      if (normalizedField.includes(key) || key.includes(normalizedField)) {
-        return value;
+    // 1. Búsqueda por campo detectado por AI
+    for (const [category, config] of Object.entries(fieldHierarchy)) {
+      if (config.fields.some(field => normalizedField.includes(field.toLowerCase())) ||
+          config.aliases.some(alias => normalizedField.includes(alias.toLowerCase()))) {
+        const result = config.getValue();
+        if (result.value) {
+          return {
+            answer: result.value,
+            confidence: result.confidence,
+            source: 'listing-direct'
+          };
+        }
       }
     }
 
-    // Try keyword matching in question
-    const questionLower = userQuestion.toLowerCase();
-    if (questionLower.includes('wifi') || questionLower.includes('internet')) {
-      return `WiFi: ${listing.wifiUsername}, Password: ${listing.wifiPassword}`;
+    // 2. Búsqueda por palabras clave en la pregunta
+    for (const [category, config] of Object.entries(fieldHierarchy)) {
+      if (config.aliases.some(alias => normalizedQuestion.includes(alias.toLowerCase()))) {
+        const result = config.getValue();
+        if (result.value) {
+          return {
+            answer: result.value,
+            confidence: result.confidence * 0.9, // Slightly lower confidence for keyword matching
+            source: 'listing-keyword'
+          };
+        }
+      }
     }
-    
-    if (questionLower.includes('check') && questionLower.includes('in')) {
-      return listing.checkInTime;
-    }
-    
-    if (questionLower.includes('check') && questionLower.includes('out')) {
-      return listing.checkOutTime;
+
+    // 3. Búsqueda en campos especiales o instrucciones generales
+    if (listing.specialInstructions && 
+        (normalizedQuestion.includes('instruction') || 
+         normalizedQuestion.includes('help') || 
+         normalizedQuestion.includes('how to'))) {
+      return {
+        answer: listing.specialInstructions,
+        confidence: 0.7,
+        source: 'listing-special'
+      };
     }
 
     return null;
