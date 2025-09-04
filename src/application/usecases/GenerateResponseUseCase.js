@@ -6,10 +6,11 @@ class GenerateResponseUseCase {
     listingRepository,
     faqRepository,
     conversationRepository,
-    aiService
+    aiService,
+    hostawayService
   }) {
     // Validate required dependencies
-    if (!listingRepository || !faqRepository || !conversationRepository || !aiService) {
+    if (!listingRepository || !faqRepository || !conversationRepository || !aiService || !hostawayService) {
       throw new Error('Missing required dependencies in GenerateResponseUseCase');
     }
 
@@ -17,7 +18,8 @@ class GenerateResponseUseCase {
     if (typeof listingRepository.findByMapId !== 'function' ||
         typeof faqRepository.findAll !== 'function' ||
         typeof conversationRepository.findByGuestId !== 'function' ||
-        typeof aiService.detectField !== 'function') {
+        typeof aiService.detectField !== 'function' ||
+        typeof hostawayService.sendMessageToGuest !== 'function') {
       throw new Error('Invalid repository or service implementation');
     }
 
@@ -25,6 +27,7 @@ class GenerateResponseUseCase {
     this.faqRepository = faqRepository;
     this.conversationRepository = conversationRepository;
     this.aiService = aiService;
+    this.hostawayService = hostawayService;
     this.logger = new SecureLogger();
   }
 
@@ -207,15 +210,60 @@ class GenerateResponseUseCase {
         confidence
       });
 
-      return {
-        response,
-        source,
-        detectedField,
-        processingTime,
-        confidence,
-        requiresEscalation,
-        escalationReason
-      };
+      // Enviar la respuesta a través de Hostaway
+      try {
+        const sentMessage = await this.hostawayService.sendMessageToGuest(
+          reservationId, 
+          response
+        );
+
+        this.logger.info('Response sent via Hostaway', {
+          messageId: sentMessage.id,
+          reservationId,
+          source
+        });
+
+        // Guardar el mensaje enviado en la conversación
+        await this.conversationRepository.addMessage({
+          conversationId: conversation?.id,
+          messageId: sentMessage.id,
+          content: response,
+          direction: 'host_to_guest',
+          source,
+          confidence,
+          timestamp: new Date()
+        });
+
+        return {
+          response,
+          source,
+          detectedField,
+          processingTime,
+          confidence,
+          requiresEscalation,
+          escalationReason,
+          messageId: sentMessage.id,
+          sent: true
+        };
+
+      } catch (error) {
+        this.logger.error('Failed to send message via Hostaway', {
+          error: error.message,
+          reservationId
+        });
+
+        return {
+          response,
+          source,
+          detectedField,
+          processingTime,
+          confidence,
+          requiresEscalation,
+          escalationReason,
+          sent: false,
+          error: 'Failed to send message via Hostaway'
+        };
+      }
 
     } catch (error) {
       this.logger.error('Error generating response', {
