@@ -342,4 +342,4 @@ class DependencyContainer {
   }
 }
 
-module.exports = DependencyContainer;
+module.exports = { DependencyContainer };
