@@ -6,14 +6,15 @@ const { Validator } = require('../infraestructure/secutiry/Validator');
 const { DatabaseConnection } = require('../infraestructure/database/mongodb/Connection');
 const { MongoListingRepository } = require('../infraestructure/database/mongodb/ListingRepository');
 const { MongoConversationRepository } = require('../infraestructure/database/mongodb/ConversationRepository');
-const { MongoFAQRepository, MongoSupportTicketRepository } = require('../infraestructure/database/mongodb/AdditionalRepositories');
+const { MongoFAQRepository } = require('../infraestructure/database/mongodb/FAQRepository');
+const { MongoSupportTicketRepository } = require('../infraestructure/database/mongodb/AdditionalRepositories');
 
 // External Services
 const { HostawayService } = require('../infraestructure/external/hostaway/HostawayService');
 const { OpenAIService } = require('../infraestructure/external/openai/OpenAIService');
 const { WhatsAppService } = require('../infraestructure/external/whatsapp/WhatsAppService');
 
-// Security - IMPORTS CORREGIDOS
+// Security
 const { RateLimiter } = require('../infraestructure/secutiry/RateLimiter');
 const { TokenManager } = require('../infraestructure/secutiry/TokenManager');
 
@@ -38,30 +39,68 @@ class DependencyContainer {
     this.logger = new SecureLogger();
   }
 
+  get(name) {
+    const dependency = this.dependencies.get(name);
+    if (!dependency) {
+      this.logger.error(`Dependency ${name} not found in container`, {
+        availableDependencies: Array.from(this.dependencies.keys())
+      });
+      throw new Error(`Dependency ${name} not found in container`);
+    }
+    return dependency;
+  }
+
+  validateDependencies() {
+    const requiredDependencies = [
+      'databaseConnection',
+      'rateLimiter',
+      'tokenManager',
+      'validator',
+      'listingRepository',
+      'conversationRepository',
+      'faqRepository',
+      'supportTicketRepository',
+      'hostawayService',
+      'aiService',
+      'generateResponseUseCase',
+      'sendNotificationUseCase',
+      'processWebhookUseCase',
+      'healthController',
+      'webhookController',
+      'adminController'
+    ];
+
+    const missing = requiredDependencies.filter(dep => !this.dependencies.has(dep));
+    if (missing.length > 0) {
+      this.logger.error('Missing required dependencies', { missing });
+      throw new Error(`Missing required dependencies: ${missing.join(', ')}`);
+    }
+  }
+
   async initialize() {
     try {
       this.logger.info('Initializing dependency container...');
 
-      // 1. Validate environment
-      Validator.validateEnvironmentVariables();
-
-      // 2. Initialize infrastructure
+      // 1. Initialize infrastructure
       await this.initializeInfrastructure();
 
-      // 3. Initialize repositories
+      // 2. Initialize repositories
       this.initializeRepositories();
 
-      // 4. Initialize services
+      // 3. Initialize services
       await this.initializeServices();
 
-      // 5. Initialize use cases
+      // 4. Initialize use cases
       this.initializeUseCases();
 
-      // 6. Initialize controllers
+      // 5. Initialize controllers
       this.initializeControllers();
 
-      // 7. Initialize middleware
+      // 6. Initialize middleware
       this.initializeMiddleware();
+
+      // 7. Validate all dependencies
+      this.validateDependencies();
 
       this.logger.info('✅ Dependency container initialized successfully');
       return true;
@@ -86,6 +125,10 @@ class DependencyContainer {
 
     const tokenManager = new TokenManager();
     this.dependencies.set('tokenManager', tokenManager);
+
+    // Initialize validator
+    const validator = new Validator();
+    this.dependencies.set('validator', validator);
 
     this.logger.debug('Infrastructure initialized');
   }
@@ -136,38 +179,65 @@ class DependencyContainer {
   }
 
   initializeUseCases() {
-    this.logger.debug('Initializing use cases...');
+    try {
+      this.logger.debug('Initializing use cases...');
+
+      // First initialize all repositories and services needed
+      const listingRepository = this.get('listingRepository');
+      const faqRepository = this.get('faqRepository');
+      const conversationRepository = this.get('conversationRepository');
+      const supportTicketRepository = this.get('supportTicketRepository');
+      const aiService = this.get('aiService');
+      const hostawayService = this.get('hostawayService');
+      const whatsappService = this.dependencies.get('whatsappService'); // Optional
 
     // Generate Response Use Case
     const generateResponseUseCase = new GenerateResponseUseCase({
-      listingRepository: this.get('listingRepository'),
-      faqRepository: this.get('faqRepository'),
-      conversationRepository: this.get('conversationRepository'),
-      aiService: this.get('aiService'),
-      hostawayService: this.get('hostawayService')
+      listingRepository,
+      faqRepository,
+      conversationRepository,
+      aiService,
+      hostawayService
     });
     this.dependencies.set('generateResponseUseCase', generateResponseUseCase);
 
     // Send Notification Use Case
     const sendNotificationUseCase = new SendNotificationUseCase({
-      supportTicketRepository: this.get('supportTicketRepository'),
-      whatsappService: this.get('whatsappService'),
+      supportTicketRepository,
+      whatsappService,
       emailService: null // TODO: Implement email service
     });
     this.dependencies.set('sendNotificationUseCase', sendNotificationUseCase);
 
     // Process Webhook Use Case
-    const processWebhookUseCase = new ProcessWebhookUseCase({
-      conversationRepository: this.get('conversationRepository'),
-      reservationRepository: null, // TODO: Implement if needed
-      listingRepository: this.get('listingRepository'),
-      generateResponseUseCase,
-      sendNotificationUseCase,
-      hostawayService: this.get('hostawayService')
-    });
-    this.dependencies.set('processWebhookUseCase', processWebhookUseCase);
+    try {
+      this.logger.debug('Initializing ProcessWebhookUseCase...');
+      const processWebhookUseCase = new ProcessWebhookUseCase({
+        conversationRepository,
+        reservationRepository: null, // TODO: Implement if needed
+        listingRepository,
+        generateResponseUseCase,
+        sendNotificationUseCase,
+        hostawayService
+      });
+      this.dependencies.set('processWebhookUseCase', processWebhookUseCase);
+      this.logger.debug('ProcessWebhookUseCase initialized successfully');
+    } catch (error) {
+      this.logger.error('Failed to initialize ProcessWebhookUseCase', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
 
     this.logger.debug('Use cases initialized');
+    } catch (error) {
+      this.logger.error('Error initializing use cases', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
   initializeControllers() {
@@ -186,7 +256,8 @@ class DependencyContainer {
     // Webhook Controller
     const webhookController = new WebhookController({
       processWebhookUseCase: this.get('processWebhookUseCase'),
-      rateLimiter: this.get('rateLimiter')
+      rateLimiter: this.get('rateLimiter'),
+      validator: this.get('validator')
     });
     this.dependencies.set('webhookController', webhookController);
 
@@ -216,70 +287,59 @@ class DependencyContainer {
     this.logger.debug('Middleware initialized');
   }
 
-  get(name) {
-    const dependency = this.dependencies.get(name);
-    if (!dependency) {
-      throw new Error(`Dependency '${name}' not found in container`);
-    }
-    return dependency;
-  }
-
-  async healthCheck() {
-    const results = {};
-    
-    try {
-      const databaseConnection = this.get('databaseConnection');
-      results.database = await databaseConnection.healthCheck();
-    } catch (error) {
-      results.database = { healthy: false, error: error.message };
-    }
-
-    try {
-      const hostawayService = this.get('hostawayService');
-      results.hostaway = await hostawayService.healthCheck();
-    } catch (error) {
-      results.hostaway = { healthy: false, error: error.message };
-    }
-
-    try {
-      const aiService = this.get('aiService');
-      results.ai = await aiService.healthCheck();
-    } catch (error) {
-      results.ai = { healthy: false, error: error.message };
-    }
-
-    return results;
-  }
-
   async shutdown() {
     this.logger.info('Shutting down dependency container...');
 
     try {
-      // Shutdown in reverse order
-      const shutdownOrder = [
-        'hostawayService',
-        'databaseConnection'
-      ];
+      // Close database connection
+      const databaseConnection = this.dependencies.get('databaseConnection');
+      if (databaseConnection) {
+        await databaseConnection.close();
+      }
 
-      for (const depName of shutdownOrder) {
-        try {
-          const dependency = this.dependencies.get(depName);
-          if (dependency && typeof dependency.shutdown === 'function') {
-            await dependency.shutdown();
-            this.logger.debug(`${depName} shut down`);
-          }
-        } catch (error) {
-          this.logger.error(`Error shutting down ${depName}`, { error: error.message });
-        }
+      // Clean up any other resources that need it
+      const hostawayService = this.dependencies.get('hostawayService');
+      if (hostawayService) {
+        await hostawayService.cleanup();
       }
 
       this.dependencies.clear();
-      this.logger.info('Dependency container shutdown completed');
+      this.logger.info('Dependency container shut down successfully');
 
     } catch (error) {
-      this.logger.error('Error during dependency container shutdown', { error: error.message });
+      this.logger.error('Error during container shutdown', { error: error.message });
+      throw error;
+    }
+  }
+
+  async healthCheck() {
+    const health = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      services: {}
+    };
+
+    try {
+      // Check database
+      const db = this.get('databaseConnection');
+      health.services.database = await db.healthCheck();
+
+      // Check Hostaway
+      const hostaway = this.get('hostawayService');
+      health.services.hostaway = await hostaway.healthCheck();
+
+      // Check OpenAI
+      const ai = this.get('aiService');
+      health.services.openai = await ai.healthCheck();
+
+      return health;
+
+    } catch (error) {
+      health.status = 'unhealthy';
+      health.error = error.message;
+      return health;
     }
   }
 }
 
-module.exports = { DependencyContainer };
+module.exports = DependencyContainer;

@@ -2,6 +2,10 @@
 const { Validator } = require('../../infraestructure/secutiry/Validator');
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
+/**
+ * @class ProcessWebhookUseCase
+ * @description Use case for processing Hostaway webhooks
+ */
 class ProcessWebhookUseCase {
   constructor({
     conversationRepository,
@@ -177,4 +181,6 @@ class ProcessWebhookUseCase {
   }
 }
 
-module.exports = { ProcessWebhookUseCase };
+// Export the ProcessWebhookUseCase class
+class ProcessWebhookUseCaseImpl extends ProcessWebhookUseCase {}
+module.exports = { ProcessWebhookUseCase: ProcessWebhookUseCaseImpl };
