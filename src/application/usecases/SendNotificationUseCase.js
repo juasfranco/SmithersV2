@@ -41,6 +41,7 @@ class SendNotificationUseCase {
           listingMapId,
           question: message,
           reason: error || 'Support request from AI agent',
+          description: message || error?.message || 'Support ticket created from notification',
           priority,
           metadata: {
             ...metadata,

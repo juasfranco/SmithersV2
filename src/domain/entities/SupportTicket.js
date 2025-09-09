@@ -6,13 +6,14 @@ class SupportTicket {
     listingMapId,
     question,
     reason,
+    description,
     priority = 'medium',
     status = 'open',
     assignedTo = null,
     resolution = null,
     metadata = {}
   }) {
-    this.validateRequired({ guestId, reservationId, question, reason });
+    this.validateRequired({ guestId, reservationId, question, reason, description });
     this.validatePriority(priority);
     this.validateStatus(status);
     
@@ -21,6 +22,7 @@ class SupportTicket {
     this.listingMapId = listingMapId;
     this.question = this.sanitizeText(question);
     this.reason = this.sanitizeText(reason);
+    this.description = this.sanitizeText(description);
     this.priority = priority;
     this.status = status;
     this.assignedTo = assignedTo;
