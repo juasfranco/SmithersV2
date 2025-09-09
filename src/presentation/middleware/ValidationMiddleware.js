@@ -1,5 +1,5 @@
 // src/presentation/middleware/ValidationMiddleware.js
-const { Validator } = require('../../infraestructure/secutiry/Validator'); // Corregido: infraestructure (con "e")
+const { Validator } = require('../../infrastructure/security/Validator'); // Corregido: infraestructure (con "e")
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 class ValidationMiddleware {

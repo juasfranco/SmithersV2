@@ -1,5 +1,5 @@
 // src/shared/logger/SecureLogger.js
-const { Validator } = require('../../infraestructure/secutiry/Validator');
+const { Validator } = require('../../infrastructure/security/Validator');
 
 class SecureLogger {
   constructor() {

@@ -19,7 +19,7 @@ class GenerateResponseUseCase {
         typeof faqRepository.findAll !== 'function' ||
         typeof conversationRepository.findByGuestId !== 'function' ||
         typeof aiService.detectField !== 'function' ||
-        typeof hostawayService.sendMessageToGuest !== 'function') {
+        typeof hostawayService.sendMessage !== 'function') {
       throw new Error('Invalid repository or service implementation');
     }
 

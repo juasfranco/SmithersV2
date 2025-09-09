@@ -6,7 +6,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 
 const { DependencyContainer } = require('./src/config/DependencyContainer');
-const { SecurityHeaders } = require('./src/infraestructure/secutiry/SecurityHeaders');
+const { SecurityHeaders } = require('./src/infrastructure/security/SecurityHeaders');
 const { SecureLogger } = require('./src/shared/logger/SecureLogger');
 const routes = require('./src/presentation/routes');
 

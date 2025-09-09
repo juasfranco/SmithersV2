@@ -13,7 +13,7 @@ const mockWebhooks = {
     data: {
       reservationId: '123456',
       guestId: 'G789',
-      listingMapId: 'L101',
+      listingMapId: 234200,
       checkInDate: '2025-10-01',
       checkOutDate: '2025-10-05',
       guestName: 'Juan Pérez',
@@ -31,7 +31,7 @@ const mockWebhooks = {
         conversationId: 'C456',
         guestId: 'G789',
         reservationId: '123456',
-        listingMapId: 'L101',
+        listingMapId: 234200,
         message: '¿Cuál es el código WiFi?',
         direction: 'guest_to_host',
         timestamp: new Date().toISOString()
@@ -44,7 +44,7 @@ const mockWebhooks = {
         conversationId: 'C456',
         guestId: 'G789',
         reservationId: '123456',
-        listingMapId: 'L101',
+        listingMapId: 234200,
         message: '¿A qué hora es el check-in?',
         direction: 'guest_to_host',
         timestamp: new Date().toISOString()
@@ -57,7 +57,7 @@ const mockWebhooks = {
         conversationId: 'C456',
         guestId: 'G789',
         reservationId: '123456',
-        listingMapId: 'L101',
+        listingMapId: 40160,
         message: '¿Hay restaurantes cerca del apartamento?',
         direction: 'guest_to_host',
         timestamp: new Date().toISOString()
@@ -70,7 +70,7 @@ const mockWebhooks = {
         conversationId: 'C456',
         guestId: 'G789',
         reservationId: '123456',
-        listingMapId: 'L101',
+        listingMapId: 40160,
         message: '¿Cuál es el código de la puerta?',
         direction: 'guest_to_host',
         timestamp: new Date().toISOString()
@@ -84,7 +84,7 @@ const mockWebhooks = {
     data: {
       reservationId: '123456',
       guestId: 'G789',
-      listingMapId: 'L101',
+      listingMapId: 40160,
       updateType: 'dates_changed',
       oldData: {
         checkInDate: '2025-10-01',
@@ -110,7 +110,16 @@ async function simulateWebhook(container, webhookData) {
     // Crear request simulado
     const req = {
       body: webhookData,
-      container: container
+      container: container,
+      ip: '127.0.0.1',
+      get: function(header) {
+        const headers = {
+          'User-Agent': 'TestScript/1.0',
+          'Content-Length': JSON.stringify(webhookData).length,
+          'Content-Type': 'application/json'
+        };
+        return headers[header];
+      }
     };
 
     // Crear response simulado
@@ -194,7 +203,7 @@ async function testFullFlow() {
     // 4. Verificar estado final
     const conversation = await container
       .get('conversationRepository')
-      .findByGuestId(mockWebhooks.newMessage.data.guestId);
+      .findByGuestId(mockWebhooks.newMessages[0].data.guestId);
 
     logger.info('\n📊 Resumen de la conversación:', {
       guestId: conversation?.guestId,

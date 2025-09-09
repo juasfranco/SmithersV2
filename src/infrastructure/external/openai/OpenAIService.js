@@ -24,19 +24,26 @@ class OpenAIService {
     }
   }
 
-  async detectField(message, conversationHistory = []) {
-    const contextPrompt = conversationHistory.length > 0
-      ? `Historial de conversación reciente:\n${conversationHistory.slice(-3).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nPregunta actual: "${message}"`
+  async detectField(input) {
+    const { message, context = [], fields = [] } = input;
+
+    const contextPrompt = context.length > 0
+      ? `Historial de conversación reciente:\n${context.slice(-3).map(m => `${m.role}: ${m.content}`).join('\n')}\n\nPregunta actual: "${message}"`
       : `Pregunta: "${message}"`;
+
+    const fieldsPrompt = fields.length > 0
+      ? `\nCampos disponibles: ${fields.join(', ')}`
+      : '';
 
     const prompt = `
 Contexto de conversación:
 ${contextPrompt}
+${fieldsPrompt}
 
 Identifica el campo específico que el usuario está preguntando.
 Devuelve SOLO el nombre del campo en inglés tal como se usaría en la base de datos (ej: checkOutTime, checkInTime, wifi, parking, address).
-Si no puedes identificar un campo específico, responde "unknown".
-    `;
+Si no puedes identificar un campo específico entre los disponibles, responde "unknown".
+`;
 
     const response = await this.ask(prompt);
     return response.trim().split(/[\n,.;:]/)[0].trim();

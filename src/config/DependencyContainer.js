@@ -1,22 +1,22 @@
 // src/config/DependencyContainer.js
 const { SecureLogger } = require('../shared/logger/SecureLogger');
-const { Validator } = require('../infraestructure/secutiry/Validator');
+const { Validator } = require('../infrastructure/security/Validator');
 
 // Database
-const { DatabaseConnection } = require('../infraestructure/database/mongodb/Connection');
-const { MongoListingRepository } = require('../infraestructure/database/mongodb/ListingRepository');
-const { MongoConversationRepository } = require('../infraestructure/database/mongodb/ConversationRepository');
-const { MongoFAQRepository } = require('../infraestructure/database/mongodb/FAQRepository');
-const { MongoSupportTicketRepository } = require('../infraestructure/database/mongodb/AdditionalRepositories');
+const { DatabaseConnection } = require('../infrastructure/database/mongodb/Connection');
+const { MongoListingRepository } = require('../infrastructure/database/mongodb/ListingRepository');
+const { MongoConversationRepository } = require('../infrastructure/database/mongodb/ConversationRepository');
+const { MongoFAQRepository } = require('../infrastructure/database/mongodb/FAQRepository');
+const { MongoSupportTicketRepository } = require('../infrastructure/database/mongodb/AdditionalRepositories');
 
 // External Services
-const { HostawayService } = require('../infraestructure/external/hostaway/HostawayService');
-const { OpenAIService } = require('../infraestructure/external/openai/OpenAIService');
-const { WhatsAppService } = require('../infraestructure/external/whatsapp/WhatsAppService');
+const { HostawayService } = require('../infrastructure/external/hostaway/HostawayService');
+const { OpenAIService } = require('../infrastructure/external/openai/OpenAIService');
+const { WhatsAppService } = require('../infrastructure/external/whatsapp/WhatsAppService');
 
 // Security
-const { RateLimiter } = require('../infraestructure/secutiry/RateLimiter');
-const { TokenManager } = require('../infraestructure/secutiry/TokenManager');
+const { RateLimiter } = require('../infrastructure/security/RateLimiter');
+const { TokenManager } = require('../infrastructure/security/TokenManager');
 
 // Use Cases
 const { ProcessWebhookUseCase } = require('../application/usecases/ProcessWebhookUseCase');
@@ -214,7 +214,7 @@ class DependencyContainer {
       this.logger.debug('Initializing ProcessWebhookUseCase...');
       const processWebhookUseCase = new ProcessWebhookUseCase({
         conversationRepository,
-        reservationRepository: null, // TODO: Implement if needed
+        reservationRepository: hostawayService, // Using hostawayService as reservationRepository
         listingRepository,
         generateResponseUseCase,
         sendNotificationUseCase,

@@ -41,3 +41,5 @@ class SecurityHeaders {
     };
   }
 }
+
+module.exports = { SecurityHeaders };

@@ -1,5 +1,5 @@
 // src/application/usecases/ProcessWebhookUseCase.js - Con import correcto
-const { Validator } = require('../../infraestructure/secutiry/Validator');
+const { Validator } = require('../../infrastructure/security/Validator');
 const { SecureLogger } = require('../../shared/logger/SecureLogger');
 
 /**
@@ -44,12 +44,15 @@ class ProcessWebhookUseCase {
       switch (webhookData.event) {
         case 'new message received':
         case 'messageCreated':
+        case 'conversation_message_created':
           result = await this.processNewMessage(webhookData);
           break;
         case 'reservation created':
+        case 'reservation_created':
           result = await this.processReservationCreated(webhookData);
           break;
         case 'reservation updated':
+        case 'reservation_updated':
           result = await this.processReservationUpdated(webhookData);
           break;
         default:

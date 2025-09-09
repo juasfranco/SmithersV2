@@ -1,9 +1,10 @@
-// src/infraestructure/database/mongodb/AdditionalRepositories.js
+// src/infrastructure/database/mongodb/AdditionalRepositories.js
 const { SecureLogger } = require('../../../shared/logger/SecureLogger');
 const { IFAQRepository } = require('../../../domain/repositories/IFAQRepository');
 const { ISupportTicketRepository } = require('../../../domain/repositories/ISupportTicketRepository');
 const { FAQ } = require('../../../domain/entities/FAQ');
 const { SupportTicket } = require('../../../domain/entities/SupportTicket');
+const { SupportTicketModel } = require('../models/SupportTicketModel');
 
 // FAQ Repository Implementation
 class MongoFAQRepository extends IFAQRepository {
@@ -107,34 +108,34 @@ class MongoSupportTicketRepository extends ISupportTicketRepository {
   constructor() {
     super();
     this.logger = new SecureLogger();
-    this.tickets = []; // In-memory storage for now - replace with MongoDB collection
+    this.model = SupportTicketModel;
   }
 
   async save(ticket) {
     try {
-      if (!ticket.id) {
-        ticket.id = Date.now().toString(); // Simple ID generation
-      }
-      
-      const existingIndex = this.tickets.findIndex(t => t.id === ticket.id);
-      if (existingIndex >= 0) {
-        this.tickets[existingIndex] = ticket;
-      } else {
-        this.tickets.push(ticket);
-      }
-      
-      this.logger.info('Support ticket saved', { id: ticket.id });
-      return ticket;
+      const id = Date.now().toString(); // Simple ID generation
+      const newTicket = new this.model({ ...ticket, id });
+      await newTicket.save();
+      this.logger.info('Support ticket saved', { id });
+      return newTicket.toObject();
     } catch (error) {
       this.logger.error('Error saving support ticket', { error: error.message });
       throw error;
     }
   }
 
+  async findAll() {
+    try {
+      return await this.model.find().lean();
+    } catch (error) {
+      this.logger.error('Error finding all support tickets', { error: error.message });
+      throw error;
+    }
+  }
+
   async findById(id) {
     try {
-      const ticket = this.tickets.find(t => t.id === id);
-      return ticket || null;
+      return await this.model.findOne({ id }).lean();
     } catch (error) {
       this.logger.error('Error finding support ticket by id', { error: error.message, id });
       throw error;
@@ -143,16 +144,25 @@ class MongoSupportTicketRepository extends ISupportTicketRepository {
 
   async findByGuestId(guestId) {
     try {
-      return this.tickets.filter(t => t.guestId === guestId);
+      return await this.model.find({ guestId }).lean();
     } catch (error) {
-      this.logger.error('Error finding support tickets by guestId', { error: error.message, guestId });
+      this.logger.error('Error finding support tickets by guest id', { error: error.message, guestId });
+      throw error;
+    }
+  }
+
+  async findByReservationId(reservationId) {
+    try {
+      return await this.model.find({ reservationId }).lean();
+    } catch (error) {
+      this.logger.error('Error finding support tickets by reservation id', { error: error.message, reservationId });
       throw error;
     }
   }
 
   async findByStatus(status) {
     try {
-      return this.tickets.filter(t => t.status === status);
+      return await this.model.find({ status }).lean();
     } catch (error) {
       this.logger.error('Error finding support tickets by status', { error: error.message, status });
       throw error;
@@ -161,7 +171,7 @@ class MongoSupportTicketRepository extends ISupportTicketRepository {
 
   async findByPriority(priority) {
     try {
-      return this.tickets.filter(t => t.priority === priority);
+      return await this.model.find({ priority }).lean();
     } catch (error) {
       this.logger.error('Error finding support tickets by priority', { error: error.message, priority });
       throw error;
@@ -170,13 +180,12 @@ class MongoSupportTicketRepository extends ISupportTicketRepository {
 
   async update(id, updates) {
     try {
-      const ticketIndex = this.tickets.findIndex(t => t.id === id);
-      if (ticketIndex >= 0) {
-        Object.assign(this.tickets[ticketIndex], updates);
-        this.tickets[ticketIndex].updatedAt = new Date();
-        return this.tickets[ticketIndex];
-      }
-      return null;
+      const updatedTicket = await this.model.findOneAndUpdate(
+        { id },
+        { ...updates, updatedAt: new Date() },
+        { new: true }
+      ).lean();
+      return updatedTicket;
     } catch (error) {
       this.logger.error('Error updating support ticket', { error: error.message, id });
       throw error;
@@ -185,32 +194,34 @@ class MongoSupportTicketRepository extends ISupportTicketRepository {
 
   async getStatistics() {
     try {
-      const total = this.tickets.length;
-      const open = this.tickets.filter(t => t.isOpen()).length;
-      const resolved = this.tickets.filter(t => t.isResolved()).length;
-      const byPriority = {
-        high: this.tickets.filter(t => t.priority === 'high').length,
-        medium: this.tickets.filter(t => t.priority === 'medium').length,
-        low: this.tickets.filter(t => t.priority === 'low').length
-      };
+      const [
+        total,
+        open,
+        resolved,
+        highPriority,
+        mediumPriority,
+        lowPriority
+      ] = await Promise.all([
+        this.model.countDocuments(),
+        this.model.countDocuments({ status: 'open' }),
+        this.model.countDocuments({ status: 'resolved' }),
+        this.model.countDocuments({ priority: 'high' }),
+        this.model.countDocuments({ priority: 'medium' }),
+        this.model.countDocuments({ priority: 'low' })
+      ]);
 
       return {
         total,
         open,
         resolved,
-        byPriority
+        byPriority: {
+          high: highPriority,
+          medium: mediumPriority,
+          low: lowPriority
+        }
       };
     } catch (error) {
       this.logger.error('Error getting support ticket statistics', { error: error.message });
-      throw error;
-    }
-  }
-
-  async findOpen() {
-    try {
-      return this.tickets.filter(t => t.isOpen());
-    } catch (error) {
-      this.logger.error('Error finding open support tickets', { error: error.message });
       throw error;
     }
   }
