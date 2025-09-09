@@ -32,9 +32,12 @@ const FAQSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     }
-}, { timestamps: true });
+}, { 
+    timestamps: true,
+    collection: 'Faqs' // Forzar nombre exacto de la colección
+});
 
-const FAQ = mongoose.model('FAQ', FAQSchema);
+const FAQ = mongoose.model('FAQ', FAQSchema, 'Faqs'); // Especificar nombre exacto de la colección
 
 /**
  * MongoDB implementation of FAQ Repository
