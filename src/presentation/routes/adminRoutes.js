@@ -12,6 +12,9 @@ function createAdminRoutes(container) {
   // Statistics endpoint
   router.get('/stats', (req, res) => adminController.getStatistics(req, res));
 
+  // Logs endpoint
+  router.get('/logs', (req, res) => adminController.getLogs(req, res));
+
   // Test endpoints
   router.post('/test/save-conversation', (req, res) => adminController.testSaveConversation(req, res));
 

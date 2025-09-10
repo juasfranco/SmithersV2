@@ -48,15 +48,110 @@ class AdminController {
       };
 
       this.logger.audit('Admin statistics accessed', {
-        ip: req.ip,
-        userAgent: req.get('User-Agent')
+        user: req.user?.id,
+        ip: req.ip
       });
 
-      return res.json(response);
+      res.json({
+        success: true,
+        data: response
+      });
 
     } catch (error) {
-      this.logger.error('Error getting statistics', { error: error.message });
-      return res.status(500).json({ error: 'Failed to get statistics' });
+      this.logger.error('Failed to get admin statistics', {
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }
+
+  async getLogs(req, res) {
+    try {
+      const { 
+        level, 
+        limit = 100, 
+        page = 1, 
+        startDate, 
+        endDate,
+        source 
+      } = req.query;
+
+      // Construir filtros
+      const filters = {};
+      
+      if (level) {
+        filters.level = level;
+      }
+      
+      if (source) {
+        filters.source = source;
+      }
+      
+      if (startDate || endDate) {
+        filters.timestamp = {};
+        if (startDate) filters.timestamp.$gte = new Date(startDate);
+        if (endDate) filters.timestamp.$lte = new Date(endDate);
+      }
+
+      // Obtener el modelo de logs
+      const mongoose = require('mongoose');
+      const LogModel = mongoose.models.SystemLog;
+      
+      if (!LogModel) {
+        return res.status(503).json({
+          success: false,
+          error: 'Log system not initialized'
+        });
+      }
+
+      const skip = (page - 1) * limit;
+      
+      const [logs, totalCount] = await Promise.all([
+        LogModel.find(filters)
+          .sort({ timestamp: -1 })
+          .limit(parseInt(limit))
+          .skip(skip)
+          .lean(),
+        LogModel.countDocuments(filters)
+      ]);
+
+      this.logger.audit('Admin logs accessed', {
+        user: req.user?.id,
+        ip: req.ip,
+        filters,
+        page,
+        limit
+      });
+
+      res.json({
+        success: true,
+        data: {
+          logs,
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(totalCount / limit),
+            totalCount,
+            limit: parseInt(limit)
+          },
+          filters
+        }
+      });
+
+    } catch (error) {
+      this.logger.error('Failed to get logs', {
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
     }
   }
 

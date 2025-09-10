@@ -294,12 +294,13 @@ class Server {
         this.logger.info('Dependencies shut down');
       }
 
+      // Ensure all logs are flushed
+      await this.logger.shutdown();
+      
       this.logger.info('✅ Server shutdown completed gracefully');
 
     } catch (error) {
-      this.logger.error('Error during shutdown', {
-        error: error.message
-      });
+      console.error('Error during shutdown:', error.message);
     }
   }
 }

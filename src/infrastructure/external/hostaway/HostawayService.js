@@ -257,6 +257,29 @@ class HostawayService {
       };
     }
   }
+
+  async cleanup() {
+    try {
+      this.logger.info('Cleaning up Hostaway service...');
+      
+      // Clear any stored tokens
+      if (this.tokenManager) {
+        // Clear tokens if there's a method for it
+        // this.tokenManager.clearTokens();
+      }
+      
+      // Reset initialization state
+      this.initialized = false;
+      this.client = null;
+      this.initializationAttempts = 0;
+      
+      this.logger.info('Hostaway service cleanup completed');
+    } catch (error) {
+      this.logger.error('Error during Hostaway service cleanup', {
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = { HostawayService };
