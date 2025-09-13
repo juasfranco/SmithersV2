@@ -1,158 +1,209 @@
-// scripts/testHostawayIntegration.js - Prueba completa de integración con Hostaway
-require("dotenv").config();
-const { hostawayService } = require("../services/hostawayService");
-const { handleHostawayWebhook } = require("../services/enhancedWebhookHandler");
+// scripts/testHostawayIntegration.js 
+require('dotenv').config();
+const { DependencyContainer } = require('../src/config/DependencyContainer');
+const { Environment } = require('../src/config/Environment');
+const { SecureLogger } = require('../src/shared/logger/SecureLogger');
+const { ProcessWebhookUseCase } = require('../src/application/usecases/ProcessWebhookUseCase');
 
-async function testHostawayConnection() {
-  console.log("🔍 Probando conexión con Hostaway API...");
+const logger = new SecureLogger();
+
+async function testHostawayIntegration() {
+  console.log('� Starting Hostaway Integration Test...\n');
   
   try {
-    // 🔹 VERIFICAR VARIABLES DE ENTORNO
-    console.log("🔧 Verificando configuración...");
-    console.log("   HOSTAWAY_ACCOUNT_ID:", process.env.HOSTAWAY_ACCOUNT_ID || "❌ NO CONFIGURADO");
-    console.log("   HOSTAWAY_CLIENT_SECRET:", process.env.HOSTAWAY_CLIENT_SECRET ? "✅ CONFIGURADO" : "❌ NO CONFIGURADO");
+    // 1. Environment Variables Check
+    console.log('� Checking environment variables...');
+    const requiredVars = ['HOSTAWAY_ACCOUNT_ID', 'HOSTAWAY_CLIENT_SECRET'];
     
-    if (!process.env.HOSTAWAY_ACCOUNT_ID || !process.env.HOSTAWAY_CLIENT_SECRET) {
-      throw new Error("Variables de entorno HOSTAWAY_ACCOUNT_ID y HOSTAWAY_CLIENT_SECRET son requeridas");
+    requiredVars.forEach(varName => {
+      const value = process.env[varName];
+      console.log(`   ${varName}: ${value ? '✅ CONFIGURED' : '❌ NOT CONFIGURED'}`);
+      
+      if (!value) {
+        throw new Error(`Missing required environment variable: ${varName}`);
+      }
+    });
+
+    // 2. Initialize Container
+    console.log('\n🔧 Initializing dependency container...');
+    const container = new DependencyContainer();
+    await container.initialize();
+    
+    // 3. Get Hostaway Service
+    const hostawayService = container.get('hostawayService');
+    
+    if (!hostawayService) {
+      throw new Error('Failed to get Hostaway service from container');
     }
 
-    // 🔹 PROBAR AUTENTICACIÓN
-    console.log("\n🔑 Probando autenticación...");
+    // 4. Test Authentication
+    console.log('\n🔑 Testing authentication...');
     const token = await hostawayService.getAccessToken();
-    console.log("✅ Token obtenido:", token ? `${token.substring(0, 30)}...` : "No obtenido");
-    
-    // 🔹 PROBAR CONEXIÓN BÁSICA
-    console.log("\n🌐 Probando conexión básica...");
+    console.log(`✅ Token obtained: ${token.substring(0, 30)}...`);
+
+    // 5. Test Basic Connection
+    console.log('\n🌐 Testing basic connection...');
     const connectionTest = await hostawayService.testConnection();
     
     if (!connectionTest) {
-      throw new Error("Test de conexión básica falló");
+      throw new Error('Basic connection test failed');
+    }
+    console.log('✅ Connection test successful');
+
+    // 6. Test Listings API
+    console.log('\n📋 Testing listings API...');
+    try {
+      const response = await hostawayService.apiRequest('GET', '/listings?limit=1');
+      console.log('✅ Listings API functional. Example listing:', {
+        id: response?.result?.[0]?.id,
+        name: response?.result?.[0]?.name,
+        status: response?.result?.[0]?.status
+      });
+    } catch (error) {
+      console.error('❌ Failed to fetch listings:', error.message);
+      throw error;
     }
 
-    // 🔹 PROBAR API DE RESERVAS
-    console.log("\n📋 Probando API de reservas...");
+    // 7. Test Reservations API
+    console.log('\n🏠 Testing reservations API...');
     try {
-      const reservations = await hostawayService.searchReservations({ limit: 3 });
-      console.log("✅ API de reservas funcional. Reservas encontradas:", reservations.length);
-      
-      if (reservations.length > 0) {
-        const reservation = reservations[0];
-        console.log("📌 Reserva de ejemplo:", {
+      const response = await hostawayService.apiRequest('GET', '/reservations?limit=1&includeResources=1');
+      if (response?.result?.length > 0) {
+        const reservation = response.result[0];
+        console.log('✅ Reservations API functional. Example reservation:', {
           id: reservation.id,
           guestName: reservation.guestName,
-          listingMapId: reservation.listingMapId,
           status: reservation.status,
-          checkIn: reservation.arrivalDate
+          checkIn: reservation.arrivalDate,
+          checkOut: reservation.departureDate
         });
-        
-        // 🔹 PROBAR CONTEXTO COMPLETO
-        console.log("\n🔍 Probando obtener contexto completo...");
-        const { getCompleteContext } = require("../services/hostawayService");
-        const context = await getCompleteContext(reservation.id);
-        console.log("✅ Contexto completo obtenido:", {
+
+        // 8. Test Complete Context
+        console.log('\n🔍 Testing complete context retrieval...');
+        const context = await hostawayService.getCompleteContext(reservation.id);
+        console.log('✅ Complete context retrieved successfully:', {
           reservationId: context.reservation.id,
+          listingId: context.listing?.id,
           guestName: context.reservation.guestName,
-          listingName: context.listing?.name || 'Sin listing',
-          messagesCount: context.conversation.recentMessages.length
+          hasMessages: Array.isArray(context.messages)
         });
       } else {
-        console.log("ℹ️ No hay reservas en la cuenta para probar contexto completo");
+        console.warn('⚠️ No reservations found for testing');
       }
-    } catch (apiError) {
-      console.log("⚠️ Error accediendo a reservas específicas:", apiError.message);
-      console.log("   Esto puede ser normal si no hay reservas o permisos limitados");
+    } catch (error) {
+      console.error('❌ Failed to test reservations:', error.message);
+      throw error;
     }
-    
-    return true;
-    
+
+    console.log('\n✅ All tests completed successfully!');
+
   } catch (error) {
-    console.error("❌ Error conectando con Hostaway:", error.message);
-    return false;
+    console.error('\n❌ Test failed:', error.message);
+    console.error('Stack trace:', error.stack);
+    process.exit(1);
+  } finally {
+    // Cleanup
+    process.exit(0);
   }
 }
 
-async function testWebhookProcessing() {
-  console.log("\n🎣 Probando procesamiento de webhooks...");
+// Run the test if this file is executed directly
+if (require.main === module) {
+  testHostawayIntegration().catch(error => {
+    console.error('💥 Test execution failed:', error.message);
+    process.exit(1);
+  });
+}
+
+async function testWebhookProcessing(container) {
+  console.log('\n🎣 Testing webhook processing...');
   
-  // Simular webhook de mensaje nuevo
+  // Mock webhook data
   const mockWebhookData = {
-    reservationId: "123456",
-    conversationId: "conv-789",
-    messageId: "msg-456",
-    message: "¿A qué hora es el check-in?",
-    messageType: "inquiry",
-    guestId: "guest-test-123",
+    reservationId: '123456',
+    conversationId: 'conv-789',
+    messageId: 'msg-456',
+    message: 'What time is check-in?',
+    messageType: 'inquiry',
+    guestId: 'guest-test-123',
     listingMapId: 789
   };
   
   try {
-    console.log("📨 Simulando webhook 'new message received'...");
+    console.log('📨 Simulating webhook "new message received"...');
     
-    // Esto fallará porque no existe la reserva, pero probará el flujo
+    const webhookUseCase = container.get('processWebhookUseCase');
+    
+    // This will fail because the reservation doesn't exist, but it tests the flow
     try {
-      await handleHostawayWebhook('new message received', mockWebhookData);
-      console.log("✅ Webhook procesado exitosamente");
+      await webhookUseCase.execute('new_message', mockWebhookData);
+      console.log('✅ Webhook processed successfully');
     } catch (error) {
-      if (error.message.includes("No se pudo obtener la reserva")) {
-        console.log("⚠️ Webhook procesó correctamente hasta obtener reserva (esperado para datos de prueba)");
-      } else {
-        throw error;
+      if (error.message.includes('Reservation not found')) {
+        console.log('⚠️ Webhook processed correctly until reservation lookup (expected for test data)');
+        return true;
       }
+      throw error;
     }
     
     return true;
     
   } catch (error) {
-    console.error("❌ Error procesando webhook:", error.message);
+    console.error('❌ Error processing webhook:', error.message);
     return false;
   }
 }
 
-async function testFullFlow() {
-  console.log("\n🔄 Probando flujo completo con reserva real...");
+async function testFullFlow(container) {
+  console.log('\n🔄 Testing complete flow with real reservation...');
   
   try {
-    // Buscar una reserva real para probar
-    const reservations = await hostawayService.searchReservations({ limit: 1 });
+    const hostawayService = container.get('hostawayService');
     
-    if (reservations.length === 0) {
-      console.log("⚠️ No hay reservas disponibles para probar flujo completo");
+    // Get a real reservation to test
+    const response = await hostawayService.apiRequest('GET', '/reservations?limit=1&includeResources=1');
+    
+    if (!response?.result?.length) {
+      console.log('⚠️ No reservations available for full flow test');
       return false;
     }
     
-    const reservation = reservations[0];
-    console.log(`📋 Usando reserva ${reservation.id} para prueba completa...`);
+    const reservation = response.result[0];
+    console.log(`📋 Using reservation ${reservation.id} for complete test...`);
     
-    // Simular webhook con reserva real
+    // Simulate webhook with real reservation
     const realWebhookData = {
       reservationId: reservation.id,
       conversationId: reservation.conversationId || null,
-      message: "Esta es una prueba del agente virtual. ¿Funciona la integración?",
-      messageType: "inquiry",
+      message: 'This is a virtual agent test. Is the integration working?',
+      messageType: 'inquiry',
       guestId: reservation.guestEmail || `guest-${reservation.id}`,
       listingMapId: reservation.listingMapId
     };
     
-    console.log("🤖 Procesando con agente virtual...");
-    const result = await handleHostawayWebhook('new message received', realWebhookData);
+    console.log('🤖 Processing with virtual agent...');
+    const webhookUseCase = container.get('processWebhookUseCase');
+    const startTime = Date.now();
+    const result = await webhookUseCase.execute('new_message', realWebhookData);
+    const processingTime = Date.now() - startTime;
     
-    console.log("✅ Flujo completo exitoso:", {
-      success: result.success,
-      processingTime: result.processingTime,
-      guestName: result.context?.guestName
+    console.log('✅ Full flow successful:', {
+      success: true,
+      processingTime: `${processingTime}ms`,
+      guestName: result?.guestName || 'Not available'
     });
     
     return true;
     
   } catch (error) {
-    console.error("❌ Error en flujo completo:", error.message);
+    console.error('❌ Error in full flow:', error.message);
     return false;
   }
 }
 
 async function runAllTests() {
-  console.log("🧪 INICIANDO PRUEBAS DE INTEGRACIÓN HOSTAWAY\n");
-  console.log("=" .repeat(50));
+  console.log('🧪 STARTING HOSTAWAY INTEGRATION TESTS\n');
+  console.log('='.repeat(50));
   
   const results = {
     connection: false,
@@ -160,54 +211,69 @@ async function runAllTests() {
     fullFlow: false
   };
   
-  // Test 1: Conexión básica
-  console.log("1️⃣ PRUEBA DE CONEXIÓN");
-  results.connection = await testHostawayConnection();
+  let container;
   
-  // Test 2: Procesamiento de webhook
-  console.log("\n2️⃣ PRUEBA DE WEBHOOK");
-  results.webhook = await testWebhookProcessing();
-  
-  // Test 3: Flujo completo (solo si la conexión funcionó)
-  if (results.connection) {
-    console.log("\n3️⃣ PRUEBA DE FLUJO COMPLETO");
-    results.fullFlow = await testFullFlow();
+  try {
+    // Initialize container once for all tests
+    container = new DependencyContainer();
+    await container.initialize();
+    
+    // Test 1: Basic Connection
+    console.log('1️⃣ CONNECTION TEST');
+    results.connection = await testHostawayIntegration();
+    
+    // Test 2: Webhook Processing
+    console.log('\n2️⃣ WEBHOOK TEST');
+    results.webhook = await testWebhookProcessing(container);
+    
+    // Test 3: Full Flow (only if connection worked)
+    if (results.connection) {
+      console.log('\n3️⃣ FULL FLOW TEST');
+      results.fullFlow = await testFullFlow(container);
+    }
+    
+    // Final Summary
+    console.log('\n' + '='.repeat(50));
+    console.log('📊 TEST SUMMARY:');
+    console.log(`✅ Hostaway Connection: ${results.connection ? 'SUCCESS' : 'FAILED'}`);
+    console.log(`✅ Webhook Processing: ${results.webhook ? 'SUCCESS' : 'FAILED'}`);
+    console.log(`✅ Full Flow: ${results.fullFlow ? 'SUCCESS' : 'FAILED'}`);
+    
+    if (results.connection && results.webhook) {
+      console.log('\n🎉 Hostaway integration ready to use!');
+      console.log('\n📋 Next steps:');
+      console.log('1. Configure your webhook in Hostaway Dashboard');
+      console.log('2. Point webhook to: your-server.com/webhooks/hostaway');
+      console.log('3. Test by sending real messages from Hostaway');
+    } else {
+      console.log('\n⚠️ There are integration issues. Check:');
+      console.log('1. Environment variables HOSTAWAY_ACCOUNT_ID and HOSTAWAY_CLIENT_SECRET');
+      console.log('2. API permissions in your Hostaway account');
+      console.log('3. Internet connection');
+    }
+    
+  } catch (error) {
+    console.error('\n💥 Critical test error:', error.message);
+    process.exit(1);
+  } finally {
+    if (container) {
+      await container.shutdown();
+    }
+    console.log('\n🔚 Tests completed');
+    process.exit(results.connection && results.webhook ? 0 : 1);
   }
-  
-  // Resumen final
-  console.log("\n" + "=" .repeat(50));
-  console.log("📊 RESUMEN DE PRUEBAS:");
-  console.log(`✅ Conexión Hostaway: ${results.connection ? 'EXITOSA' : 'FALLIDA'}`);
-  console.log(`✅ Procesamiento Webhook: ${results.webhook ? 'EXITOSO' : 'FALLIDO'}`);
-  console.log(`✅ Flujo Completo: ${results.fullFlow ? 'EXITOSO' : 'FALLIDO'}`);
-  
-  if (results.connection && results.webhook) {
-    console.log("\n🎉 ¡Integración con Hostaway lista para usar!");
-    console.log("\n📋 Próximos pasos:");
-    console.log("1. Configura tu webhook en Hostaway Dashboard");
-    console.log("2. Apunta el webhook a: tu-servidor.com/webhooks/hostaway");
-    console.log("3. Prueba enviando mensajes reales desde Hostaway");
-  } else {
-    console.log("\n⚠️ Hay problemas con la integración. Revisa:");
-    console.log("1. Variables de entorno HOSTAWAY_ACCOUNT_ID y HOSTAWAY_CLIENT_SECRET");
-    console.log("2. Permisos de API en tu cuenta Hostaway");
-    console.log("3. Conexión a internet");
-  }
-  
-  console.log("\n🔚 Pruebas completadas");
-  process.exit(results.connection && results.webhook ? 0 : 1);
 }
 
-// Ejecutar si se llama directamente
+// Run if called directly
 if (require.main === module) {
   runAllTests().catch(error => {
-    console.error("💥 Error crítico en pruebas:", error);
+    console.error('💥 Critical test error:', error);
     process.exit(1);
   });
 }
 
 module.exports = { 
-  testHostawayConnection, 
+  testHostawayIntegration, 
   testWebhookProcessing, 
   testFullFlow,
   runAllTests 
