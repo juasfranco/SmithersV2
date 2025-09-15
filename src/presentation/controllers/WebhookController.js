@@ -203,6 +203,81 @@ class WebhookController {
       });
     }
   }
+
+  // Método específico para testing con Hostaway
+  async testWebhookEndpoint(req, res) {
+    try {
+      this.logger.info('🧪 Test webhook endpoint called', {
+        method: req.method,
+        headers: req.headers,
+        body: req.body,
+        query: req.query,
+        ip: req.ip
+      });
+
+      // Log detalles para debugging
+      const testInfo = {
+        timestamp: new Date().toISOString(),
+        method: req.method,
+        headers: {
+          'content-type': req.get('Content-Type'),
+          'user-agent': req.get('User-Agent'),
+          'content-length': req.get('Content-Length'),
+          'authorization': req.get('Authorization') ? '[HIDDEN]' : 'not provided',
+        },
+        body: req.body,
+        query: req.query,
+        params: req.params,
+        ip: req.ip,
+        endpoint: 'TEST ENDPOINT - This would be processed by handleHostawayWebhook'
+      };
+
+      console.log('\n' + '='.repeat(80));
+      console.log('🧪 WEBHOOK TEST ENDPOINT CALLED');
+      console.log('='.repeat(80));
+      console.log(JSON.stringify(testInfo, null, 2));
+      console.log('='.repeat(80) + '\n');
+
+      // Si hay un body, simular el procesamiento
+      if (req.body && Object.keys(req.body).length > 0) {
+        try {
+          const webhookDto = new WebhookDto(req.body);
+          const validation = webhookDto.validate();
+          
+          console.log('📋 Webhook DTO Validation:');
+          console.log(`   Valid: ${validation.isValid}`);
+          if (!validation.isValid) {
+            console.log(`   Errors: ${JSON.stringify(validation.errors, null, 2)}`);
+          }
+          console.log(`   Event: ${webhookDto.event}`);
+          console.log(`   Reservation ID: ${webhookDto.reservationId}`);
+          console.log('');
+        } catch (error) {
+          console.log(`❌ DTO Creation Failed: ${error.message}\n`);
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Test endpoint received your webhook!',
+        receivedAt: new Date().toISOString(),
+        data: testInfo,
+        note: 'This is a test endpoint. Real webhooks should use /webhooks/hostaway'
+      });
+
+    } catch (error) {
+      this.logger.error('Test webhook endpoint error', {
+        error: error.message,
+        stack: error.stack
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
 }
 
 module.exports = { WebhookController };

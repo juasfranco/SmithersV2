@@ -12,6 +12,12 @@ function createWebhookRoutes(container) {
     (req, res) => webhookController.handleHostawayWebhook(req, res)
   );
 
+  // Test endpoint para debugging (sin validación estricta)
+  router.all('/test', (req, res) => webhookController.testWebhookEndpoint(req, res));
+
+  // Health check específico para webhooks
+  router.get('/health', (req, res) => webhookController.getHealth(req, res));
+
   return router;
 }
 

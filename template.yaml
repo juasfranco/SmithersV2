@@ -1,0 +1,219 @@
+# AWS SAM Template para Smithers v2
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: 'Smithers v2 - AI-powered customer service assistant'
+
+# Global Configuration
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        NODE_ENV: production
+        LOG_LEVEL: info
+
+# Parameters
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+    
+  MongoDBURI:
+    Type: String
+    Description: MongoDB connection URI
+    NoEcho: true
+    
+  OpenAIAPIKey:
+    Type: String
+    Description: OpenAI API Key
+    NoEcho: true
+    
+  HostawayAccountId:
+    Type: String
+    Description: Hostaway Account ID
+    NoEcho: true
+    
+  HostawayClientSecret:
+    Type: String
+    Description: Hostaway Client Secret
+    NoEcho: true
+
+# Resources
+Resources:
+  # Lambda Function
+  SmithersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'smithers-v2-${Environment}'
+      CodeUri: ./
+      Handler: lambda.handler
+      Description: 'Smithers v2 - Main application handler'
+      Environment:
+        Variables:
+          MONGODB_URI: !Ref MongoDBURI
+          OPENAI_API_KEY: !Ref OpenAIAPIKey
+          HOSTAWAY_ACCOUNT_ID: !Ref HostawayAccountId
+          HOSTAWAY_CLIENT_SECRET: !Ref HostawayClientSecret
+          AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+      Events:
+        # API Gateway Events
+        HealthCheck:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SmithersAPI
+            Path: /health
+            Method: GET
+            
+        WebhookHostaway:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SmithersAPI
+            Path: /webhooks/hostaway
+            Method: POST
+            
+        AdminAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SmithersAPI
+            Path: /api/{proxy+}
+            Method: ANY
+            
+        RootAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SmithersAPI
+            Path: /{proxy+}
+            Method: ANY
+      
+      # VPC Configuration (if needed for MongoDB Atlas private endpoint)
+      # VpcConfig:
+      #   SecurityGroupIds:
+      #     - !Ref LambdaSecurityGroup
+      #   SubnetIds:
+      #     - !Ref PrivateSubnet1
+      #     - !Ref PrivateSubnet2
+
+  # API Gateway
+  SmithersAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'smithers-v2-api-${Environment}'
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: !Sub 'Smithers v2 API - ${Environment}'
+          version: '1.0'
+        paths:
+          /{proxy+}:
+            x-amazon-apigateway-any-method:
+              produces:
+                - application/json
+              parameters:
+                - name: proxy
+                  in: path
+                  required: true
+                  type: string
+              responses: {}
+              x-amazon-apigateway-integration:
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SmithersFunction.Arn}/invocations'
+                passthroughBehavior: when_no_match
+                httpMethod: POST
+                type: aws_proxy
+
+  # CloudWatch Log Group
+  SmithersLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/smithers-v2-${Environment}'
+      RetentionInDays: 14
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SmithersFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SmithersAPI}/*/*'
+
+  # CloudWatch Alarms
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'smithers-v2-lambda-errors-${Environment}'
+      AlarmDescription: 'Lambda function errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SmithersFunction
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'smithers-v2-lambda-duration-${Environment}'
+      AlarmDescription: 'Lambda function duration'
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 25000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SmithersFunction
+
+# Outputs
+Outputs:
+  SmithersApiUrl:
+    Description: 'API Gateway endpoint URL for Smithers v2'
+    Value: !Sub 'https://${SmithersAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiUrl'
+      
+  SmithersApiId:
+    Description: 'API Gateway ID'
+    Value: !Ref SmithersAPI
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiId'
+      
+  SmithersFunctionArn:
+    Description: 'Lambda Function ARN'
+    Value: !GetAtt SmithersFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionArn'
+      
+  HealthCheckUrl:
+    Description: 'Health check endpoint'
+    Value: !Sub 'https://${SmithersAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/health'
+    
+  WebhookUrl:
+    Description: 'Hostaway webhook endpoint'
+    Value: !Sub 'https://${SmithersAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/webhooks/hostaway'

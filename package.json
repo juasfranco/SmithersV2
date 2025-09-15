@@ -14,15 +14,23 @@
     "debug-db": "node -e \"require('./scripts/verifyAndStart.js').verifyDatabaseCollections()\"",
     "debug-models": "node -e \"require('./scripts/verifyAndStart.js').testModelsConnection()\"",
     "debug-conversations": "node -e \"require('./scripts/verifyAndStart.js').testConversationSave()\"",
-    "health-check": "curl -f http://localhost:3000/health || exit 1"
+    "health-check": "curl -f http://localhost:3000/health || exit 1",
+    "build": "npm install --production",
+    "deploy:dev": "serverless deploy --stage dev",
+    "deploy:staging": "serverless deploy --stage staging",
+    "deploy:prod": "serverless deploy --stage prod",
+    "deploy:sam": "sam build && sam deploy",
+    "offline": "serverless offline --stage dev"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@vendia/serverless-express": "^4.12.6",
     "axios": "^1.11.0",
     "body-parser": "^2.2.0",
+    "chalk": "^5.6.2",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
@@ -30,5 +38,10 @@
     "helmet": "^8.1.0",
     "mongoose": "^8.16.4",
     "openai": "^5.18.1"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-offline": "^13.3.0"
   }
 }
