@@ -204,7 +204,19 @@ class Server {
         await this.initialize();
       }
 
-      // Start HTTP server
+      // Check if running in Lambda environment
+      if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+        this.logger.info('🚀 Smithers v2 initialized for AWS Lambda', {
+          environment: process.env.NODE_ENV || 'development',
+          functionName: process.env.AWS_LAMBDA_FUNCTION_NAME,
+          functionVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION
+        });
+        
+        // Don't start background tasks in Lambda
+        return this.app;
+      }
+
+      // Start HTTP server (for local development)
       this.server = this.app.listen(this.port, () => {
         this.logger.info('🎉 Smithers v2 server started successfully', {
           port: this.port,
@@ -218,7 +230,7 @@ class Server {
           }
         });
 
-        // Start background tasks
+        // Start background tasks (only for non-Lambda environments)
         this.startBackgroundTasks();
       });
 
