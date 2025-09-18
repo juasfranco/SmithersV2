@@ -45,6 +45,8 @@ class ProcessWebhookUseCase {
         case 'new message received':
         case 'messageCreated':
         case 'conversation_message_created':
+        case 'message_created':
+        case 'new_message':
           result = await this.processNewMessage(webhookData);
           break;
         case 'reservation created':
@@ -54,6 +56,22 @@ class ProcessWebhookUseCase {
         case 'reservation updated':
         case 'reservation_updated':
           result = await this.processReservationUpdated(webhookData);
+          break;
+        case 'unknown':
+          // Try to process as message if we have message data
+          if (webhookData.message && webhookData.reservationId) {
+            this.logger.info('Processing unknown event as message due to message data present', {
+              reservationId: webhookData.reservationId,
+              hasMessage: !!webhookData.message
+            });
+            result = await this.processNewMessage(webhookData);
+          } else {
+            this.logger.warn('Unknown webhook event with insufficient data', { 
+              event: webhookData.event,
+              availableFields: Object.keys(webhookData).filter(key => webhookData[key] !== null && webhookData[key] !== undefined)
+            });
+            result = { success: true, message: 'Unknown event received but cannot process without required data' };
+          }
           break;
         default:
           this.logger.info('Unhandled webhook event', { event: webhookData.event });

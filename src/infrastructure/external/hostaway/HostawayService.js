@@ -217,6 +217,16 @@ class HostawayService {
     }
   }
 
+  // Alias method for backward compatibility and clearer naming
+  async sendMessageToGuest(reservationId, message) {
+    this.logger.info('Sending message to guest', {
+      reservationId,
+      messageLength: message?.length
+    });
+    
+    return await this.sendMessage(reservationId, message);
+  }
+
   async getConversationHistory(reservationId) {
     if (!this.initialized) {
       await this.initialize();
