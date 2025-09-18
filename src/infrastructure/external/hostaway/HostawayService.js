@@ -77,17 +77,61 @@ class HostawayService {
     }
 
     try {
-      // Get reservation details
+      this.logger.info('Getting complete context from Hostaway', {
+        reservationId,
+        conversationId
+      });
+
+      // Get reservation details first (most important)
+      this.logger.debug('Fetching reservation details', { reservationId });
       const reservationResponse = await this.client.get(`/reservations/${reservationId}`);
       const reservation = reservationResponse.result;
+      this.logger.debug('Reservation fetched successfully', { 
+        reservationId, 
+        listingMapId: reservation.listingMapId 
+      });
 
-      // Get conversation history
-      const messagesResponse = await this.client.get(`/reservations/${reservationId}/messages`);
-      const messages = messagesResponse.result || [];
+      // Try to get conversation history (optional)
+      let messages = [];
+      try {
+        this.logger.debug('Fetching conversation messages', { reservationId });
+        const messagesResponse = await this.client.get(`/reservations/${reservationId}/messages`);
+        messages = messagesResponse.result || [];
+        this.logger.debug('Messages fetched successfully', { 
+          reservationId, 
+          messageCount: messages.length 
+        });
+      } catch (messageError) {
+        this.logger.warn('Could not fetch messages, continuing without them', {
+          reservationId,
+          error: messageError.message
+        });
+      }
 
-      // Get listing details
-      const listingResponse = await this.client.get(`/listings/${reservation.listingMapId}`);
-      const listing = listingResponse.result;
+      // Try to get listing details (optional)
+      let listing = null;
+      if (reservation.listingMapId) {
+        try {
+          this.logger.debug('Fetching listing details', { 
+            listingMapId: reservation.listingMapId 
+          });
+          const listingResponse = await this.client.get(`/listings/${reservation.listingMapId}`);
+          listing = listingResponse.result;
+          this.logger.debug('Listing fetched successfully', { 
+            listingMapId: reservation.listingMapId,
+            listingName: listing?.name 
+          });
+        } catch (listingError) {
+          this.logger.warn('Could not fetch listing details, using fallback', {
+            listingMapId: reservation.listingMapId,
+            error: listingError.message
+          });
+          listing = {
+            id: reservation.listingMapId,
+            name: 'Property'
+          };
+        }
+      }
 
       return {
         reservation,
@@ -99,7 +143,9 @@ class HostawayService {
       this.logger.error('Failed to get complete context', {
         reservationId,
         conversationId,
-        error: error.message
+        error: error.message,
+        statusCode: error.response?.status,
+        responseData: error.response?.data
       });
       throw error;
     }

@@ -113,67 +113,104 @@ class ProcessWebhookUseCase {
   async processNewMessage(webhookData) {
     const { reservationId, conversationId, message, guestId, listingMapId } = webhookData;
 
-    // 1. Get complete context from Hostaway
-    const context = await this.hostawayService.getCompleteContext(reservationId, conversationId);
-    
-    // 2. Enrich data
-    const enrichedGuestId = guestId || context.reservation.guestEmail || `guest-${reservationId}`;
-    const enrichedListingMapId = listingMapId || context.reservation.listingMapId;
-
-    // 3. Save guest message to conversation history
-    let conversation = await this.conversationRepository.findByGuestId(enrichedGuestId);
-    if (!conversation) {
-      const { Conversation } = require('../../domain/entities/Conversation');
-      conversation = new Conversation({ guestId: enrichedGuestId });
-    }
-
-    conversation.addMessage('guest', message, {
-      reservationId,
-      conversationId,
-      hostaway: true,
-      context: {
-        guestName: context.reservation.guestName,
-        listingName: context.listing?.name,
-        checkInDate: context.reservation.checkInDate
+    try {
+      // 1. Try to get complete context from Hostaway (with fallback)
+      let context = null;
+      try {
+        context = await this.hostawayService.getCompleteContext(reservationId, conversationId);
+        this.logger.info('Complete context retrieved successfully', { reservationId });
+      } catch (contextError) {
+        this.logger.warn('Failed to get complete context, using basic data', {
+          reservationId,
+          error: contextError.message,
+          fallbackMode: true
+        });
+        
+        // Create minimal context from webhook data
+        context = {
+          reservation: {
+            id: reservationId,
+            guestEmail: null,
+            guestName: 'Guest',
+            listingMapId: listingMapId,
+            checkInDate: null
+          },
+          listing: {
+            name: 'Property',
+            id: listingMapId
+          },
+          messages: []
+        };
       }
-    });
+      
+      // 2. Enrich data
+      const enrichedGuestId = guestId || context.reservation.guestEmail || `guest-${reservationId}`;
+      const enrichedListingMapId = listingMapId || context.reservation.listingMapId;
 
-    await this.conversationRepository.save(conversation);
+      // 3. Save guest message to conversation history
+      let conversation = await this.conversationRepository.findByGuestId(enrichedGuestId);
+      if (!conversation) {
+        const { Conversation } = require('../../domain/entities/Conversation');
+        conversation = new Conversation({ guestId: enrichedGuestId });
+      }
 
-    // 4. Generate AI response
-    const responseResult = await this.generateResponseUseCase.execute({
-      message,
-      listingMapId: enrichedListingMapId,
-      guestId: enrichedGuestId,
-      reservationId,
-      context
-    });
-
-    // 5. Send response through Hostaway
-    const sentMessage = await this.hostawayService.sendMessageToGuest(reservationId, responseResult.response);
-
-    if (sentMessage) {
-      // 6. Save agent response to conversation history
-      conversation.addMessage('agent', responseResult.response, {
-        source: responseResult.source,
-        processingTime: responseResult.processingTime,
-        hostawayMessageId: sentMessage.id,
-        hostaway: true
+      conversation.addMessage('guest', message, {
+        reservationId,
+        conversationId,
+        hostaway: true,
+        fallbackMode: !context,
+        context: {
+          guestName: context.reservation.guestName || 'Guest',
+          listingName: context.listing?.name || 'Property',
+          checkInDate: context.reservation.checkInDate
+        }
       });
 
       await this.conversationRepository.save(conversation);
 
-      return {
-        success: true,
-        context: {
-          reservationId,
-          guestName: context.reservation.guestName,
-          listingName: context.listing?.name,
-          responseSource: responseResult.source
-        }
-      };
-    } else {
-      throw new Error('Failed to send message through Hostaway');
+      // 4. Generate AI response
+      const responseResult = await this.generateResponseUseCase.execute({
+        message,
+        listingMapId: enrichedListingMapId,
+        guestId: enrichedGuestId,
+        reservationId,
+        context
+      });
+
+      // 5. Send response through Hostaway
+      const sentMessage = await this.hostawayService.sendMessageToGuest(reservationId, responseResult.response);
+
+      if (sentMessage) {
+        // 6. Save agent response to conversation history
+        conversation.addMessage('agent', responseResult.response, {
+          source: responseResult.source,
+          processingTime: responseResult.processingTime,
+          hostawayMessageId: sentMessage.id,
+          hostaway: true
+        });
+
+        await this.conversationRepository.save(conversation);
+
+        return {
+          success: true,
+          context: {
+            reservationId,
+            guestName: context.reservation.guestName || 'Guest',
+            listingName: context.listing?.name || 'Property',
+            responseSource: responseResult.source
+          }
+        };
+      } else {
+        throw new Error('Failed to send message through Hostaway');
+      }
+      
+    } catch (error) {
+      this.logger.error('Error processing new message', {
+        reservationId,
+        error: error.message,
+        guestId: enrichedGuestId || guestId || `guest-${reservationId}`
+      });
+      throw error;
     }
   }
 
