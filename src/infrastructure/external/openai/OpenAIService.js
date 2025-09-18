@@ -40,13 +40,39 @@ Contexto de conversación:
 ${contextPrompt}
 ${fieldsPrompt}
 
-Identifica el campo específico que el usuario está preguntando.
-Devuelve SOLO el nombre del campo en inglés tal como se usaría en la base de datos (ej: checkOutTime, checkInTime, wifi, parking, address).
-Si no puedes identificar un campo específico entre los disponibles, responde "unknown".
+Tu tarea es identificar el campo específico que el usuario está preguntando.
+
+Ejemplos de mapeo:
+- "¿A qué hora es el check in?" → checkInTime
+- "¿Cuál es la hora de entrada?" → checkInTime
+- "¿A qué hora puedo llegar?" → checkInTime
+- "¿A qué hora es el check out?" → checkOutTime
+- "¿Cuál es la hora de salida?" → checkOutTime
+- "¿Hasta qué hora puedo quedarme?" → checkOutTime
+- "¿Hay wifi?" → wifi
+- "¿Dónde puedo aparcar?" → parking
+- "¿Cuál es la dirección?" → address
+- "¿Hay desayuno?" → breakfast
+
+Analiza la pregunta y devuelve SOLO el nombre del campo más apropiado.
+Si no coincide con ningún campo específico, responde "unknown".
 `;
 
-    const response = await this.ask(prompt);
-    return response.trim().split(/[\n,.;:]/)[0].trim();
+    try {
+      const response = await this.ask(prompt);
+      const detectedField = response.trim().split(/[\n,.;:]/)[0].trim();
+      
+      this.logger.debug('Field detection result', {
+        originalMessage: message,
+        detectedField,
+        availableFields: fields
+      });
+      
+      return detectedField;
+    } catch (error) {
+      this.logger.error('Error detecting field', { error: error.message, message });
+      return 'unknown';
+    }
   }
 
   async generateFriendlyResponse(question, answer, conversationHistory = []) {
@@ -88,12 +114,46 @@ ${conversationHistory.length > 0 ? `Contexto de conversación previa:\n${convers
 ${contextInfo}
 Pregunta actual: "${message}"
 
-No tienes información específica sobre este tema en la base de datos.
-Responde de manera útil pero indica que necesitas verificar la información o que el huésped puede contactar directamente al anfitrión.
-Mantén un tono cordial y profesional.
+Analiza la pregunta y responde de manera útil:
+
+Si pregunta sobre horarios de check-in/check-out:
+- Proporciona horarios estándar comunes (check-in: 15:00, check-out: 11:00)
+- Menciona que puede verificar la información específica de su reserva
+- Sugiere contactar al anfitrión para casos especiales
+
+Si pregunta sobre otros temas (wifi, dirección, amenidades):
+- Da una respuesta general útil
+- Indica que puedes obtener información más específica
+- Sugiere contactar al anfitrión para detalles exactos
+
+Mantén un tono cordial y profesional. Responde en español.
+Máximo 3 frases.
     `;
 
-    return await this.ask(prompt);
+    try {
+      const response = await this.ask(prompt);
+      
+      this.logger.debug('Fallback response generated', {
+        originalMessage: message,
+        responseLength: response?.length || 0
+      });
+      
+      return response;
+    } catch (error) {
+      this.logger.error('Error generating fallback response', { 
+        error: error.message, 
+        message 
+      });
+      
+      // Emergency fallback
+      if (message.toLowerCase().includes('check') && (message.toLowerCase().includes('in') || message.toLowerCase().includes('entrada'))) {
+        return 'El horario de check-in generalmente es a las 15:00 horas. Te recomiendo verificar los detalles específicos de tu reserva o contactar a tu anfitrión para confirmar.';
+      } else if (message.toLowerCase().includes('check') && (message.toLowerCase().includes('out') || message.toLowerCase().includes('salida'))) {
+        return 'El horario de check-out generalmente es a las 11:00 horas. Te sugiero revisar tu confirmación de reserva o contactar a tu anfitrión para cualquier arreglo especial.';
+      } else {
+        return 'Disculpa, necesito verificar esta información específica. Te recomiendo contactar directamente a tu anfitrión quien podrá darte todos los detalles que necesitas.';
+      }
+    }
   }
 
   async searchFAQs(question, faqsText) {

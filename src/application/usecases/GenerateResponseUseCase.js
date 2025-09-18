@@ -62,7 +62,11 @@ class GenerateResponseUseCase {
 
       // PASO 2: Detectar el campo/tema de la pregunta usando AI
       this.logger.debug('Step 2: Detecting question topic using AI');
-      const detectedField = await this.aiService.detectField(message, conversationHistory);
+      const detectedField = await this.aiService.detectField({
+        message,
+        context: conversationHistory,
+        fields: ['checkInTime', 'checkOutTime', 'wifi', 'parking', 'address', 'breakfast', 'pets', 'smoking', 'amenities']
+      });
       
       this.logger.debug('Field detected by AI', { 
         detectedField,
