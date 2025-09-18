@@ -13,33 +13,99 @@ class WebhookDto {
   }
 
   extractEvent(data) {
-    if (data.event) return data.event;
-    if (data.event === 'messageCreated') return 'new message received';
+    // Direct event field
+    if (data.event) {
+      // Normalize common Hostaway events
+      const eventMappings = {
+        'messageCreated': 'new message received',
+        'conversation_message_created': 'new message received',
+        'message_created': 'new message received',
+        'new_message': 'new message received',
+        'reservation_created': 'reservation created',
+        'reservation_updated': 'reservation updated'
+      };
+      
+      return eventMappings[data.event] || data.event;
+    }
+    
+    // Try to infer event from data structure
+    if (data.message || data.data?.message) {
+      return 'new message received';
+    }
+    
+    if (data.reservationId || data.data?.reservationId) {
+      if (data.action === 'created' || data.type === 'created') {
+        return 'reservation created';
+      }
+      if (data.action === 'updated' || data.type === 'updated') {
+        return 'reservation updated';
+      }
+    }
+    
+    // Log unknown events for debugging
+    console.log('🔍 Unknown webhook event structure:', JSON.stringify(data, null, 2));
+    
     return 'unknown';
   }
 
   extractReservationId(data) {
-    return data.reservationId || data.data?.reservationId;
+    return data.reservationId || 
+           data.reservation_id || 
+           data.data?.reservationId || 
+           data.data?.reservation_id ||
+           data.object?.reservationId ||
+           data.object?.reservation_id;
   }
 
   extractConversationId(data) {
-    return data.conversationId || data.data?.conversationId;
+    return data.conversationId || 
+           data.conversation_id || 
+           data.data?.conversationId || 
+           data.data?.conversation_id ||
+           data.object?.conversationId ||
+           data.object?.conversation_id;
   }
 
   extractMessageId(data) {
-    return data.messageId || data.data?.messageId;
+    return data.messageId || 
+           data.message_id || 
+           data.data?.messageId || 
+           data.data?.message_id ||
+           data.object?.messageId ||
+           data.object?.message_id;
   }
 
   extractMessage(data) {
-    return data.message || data.data?.message;
+    return data.message || 
+           data.data?.message || 
+           data.object?.message ||
+           data.text ||
+           data.data?.text ||
+           data.object?.text;
   }
 
   extractGuestId(data) {
-    return data.guestId || data.data?.guestId;
+    return data.guestId || 
+           data.guest_id || 
+           data.data?.guestId || 
+           data.data?.guest_id ||
+           data.object?.guestId ||
+           data.object?.guest_id ||
+           data.guestEmail ||
+           data.data?.guestEmail ||
+           data.object?.guestEmail;
   }
 
   extractListingMapId(data) {
-    return data.listingMapId || data.ListingMapId || data.data?.listingMapId || data.data?.ListingMapId;
+    return data.listingMapId || 
+           data.listing_map_id ||
+           data.ListingMapId || 
+           data.data?.listingMapId || 
+           data.data?.listing_map_id ||
+           data.data?.ListingMapId ||
+           data.object?.listingMapId ||
+           data.object?.listing_map_id ||
+           data.object?.ListingMapId;
   }
 
   validate() {

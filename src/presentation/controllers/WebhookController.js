@@ -17,7 +17,12 @@ class WebhookController {
         ip: req.ip,
         userAgent: req.get('User-Agent'),
         contentLength: req.get('Content-Length'),
-        event: req.body?.event || 'unknown'
+        event: req.body?.event || 'unknown',
+        rawBody: JSON.stringify(req.body), // Add raw body for debugging
+        headers: {
+          'content-type': req.get('Content-Type'),
+          'x-forwarded-for': req.get('X-Forwarded-For')
+        }
       });
 
       // Rate limiting check
@@ -51,6 +56,23 @@ class WebhookController {
       let webhookDto;
       try {
         webhookDto = new WebhookDto(req.body);
+        
+        // Debug logging to understand the transformation
+        this.logger.debug('WebhookDto created', {
+          originalEvent: req.body?.event,
+          extractedEvent: webhookDto.event,
+          reservationId: webhookDto.reservationId,
+          messagePreview: webhookDto.message?.substring(0, 100),
+          allFields: {
+            event: webhookDto.event,
+            reservationId: webhookDto.reservationId,
+            conversationId: webhookDto.conversationId,
+            messageId: webhookDto.messageId,
+            guestId: webhookDto.guestId,
+            listingMapId: webhookDto.listingMapId
+          }
+        });
+        
       } catch (dtoError) {
         this.logger.error('Failed to create WebhookDto', {
           error: dtoError.message,
