@@ -112,6 +112,7 @@ class ProcessWebhookUseCase {
 
   async processNewMessage(webhookData) {
     const { reservationId, conversationId, message, guestId, listingMapId } = webhookData;
+    let enrichedGuestId = guestId || `guest-${reservationId}`; // Define early with fallback
 
     try {
       // 1. Try to get complete context from Hostaway (with fallback)
@@ -143,8 +144,8 @@ class ProcessWebhookUseCase {
         };
       }
       
-      // 2. Enrich data
-      const enrichedGuestId = guestId || context.reservation.guestEmail || `guest-${reservationId}`;
+      // 2. Enrich data (update enrichedGuestId with context if available)
+      enrichedGuestId = guestId || context.reservation.guestEmail || `guest-${reservationId}`;
       const enrichedListingMapId = listingMapId || context.reservation.listingMapId;
 
       // 3. Save guest message to conversation history
