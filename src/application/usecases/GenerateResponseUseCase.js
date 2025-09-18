@@ -36,7 +36,7 @@ class GenerateResponseUseCase {
     let response = null;
     let source = 'unknown';
     let confidence = 0;
-    let requiresEscalation = false;
+    let requiresEscalation = false; 
     let escalationReason = null;
     
     // Validate input parameters
@@ -174,10 +174,19 @@ class GenerateResponseUseCase {
           requiresEscalation = true;
           escalationReason = 'No answer found in knowledge bases (listing/FAQ)';
           
+          // Safety check for undefined response
+          if (!response || typeof response !== 'string') {
+            response = 'Disculpa, estoy experimentando dificultades técnicas. Un miembro de nuestro equipo te contactará pronto para ayudarte.';
+            source = 'technical-fallback';
+            requiresEscalation = true;
+            escalationReason = 'AI service returned invalid response';
+          }
+          
           this.logger.warn('Using AI fallback response', { 
             guestId, 
             detectedField,
             confidence,
+            responseValid: !!response,
             source
           });
           
@@ -200,12 +209,20 @@ class GenerateResponseUseCase {
         }
       }
 
+      // Final safety check
+      if (!response || typeof response !== 'string') {
+        response = 'Disculpa, estoy experimentando dificultades técnicas. Un miembro de nuestro equipo te contactará pronto para ayudarte.';
+        source = 'emergency-fallback';
+        requiresEscalation = true;
+        escalationReason = 'No valid response generated';
+      }
+
       const processingTime = Date.now() - startTime;
       
       this.logger.info('Response generated', {
         source,
         processingTime,
-        responseLength: response.length,
+        responseLength: response ? response.length : 0,
         requiresEscalation,
         confidence
       });
