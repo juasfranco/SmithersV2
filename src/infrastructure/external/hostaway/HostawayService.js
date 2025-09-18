@@ -249,15 +249,57 @@ class HostawayService {
     }
 
     try {
-      const response = await this.client.post(`/reservations/${reservationId}/messages`, {
-        message,
-        type: 'host_to_guest'
-      });
-      return response.result;
+      // Try multiple endpoint formats as Hostaway API might have different endpoints
+      let response = null;
+      let lastError = null;
+
+      // Method 1: Try the standard reservation messages endpoint
+      try {
+        this.logger.debug('Attempting to send via /reservations/{id}/messages', { reservationId });
+        response = await this.client.post(`/reservations/${reservationId}/messages`, {
+          message,
+          type: 'host_to_guest'
+        });
+        this.logger.debug('Message sent successfully via reservations endpoint', { reservationId });
+        return response.result;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn('Failed to send via reservations endpoint', {
+          reservationId,
+          error: error.message,
+          statusCode: error.response?.status
+        });
+      }
+
+      // Method 2: Try with different payload structure
+      try {
+        this.logger.debug('Attempting to send with different payload structure', { reservationId });
+        response = await this.client.post(`/reservations/${reservationId}/messages`, {
+          body: message,
+          messageType: 'host_to_guest'
+        });
+        this.logger.debug('Message sent successfully with alternative payload', { reservationId });
+        return response.result;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn('Failed to send with alternative payload', {
+          reservationId,
+          error: error.message,
+          statusCode: error.response?.status
+        });
+      }
+
+      // Method 3: Try the messages endpoint directly (if we have conversationId)
+      // This would require passing conversationId, but let's focus on the above first
+
+      throw lastError || new Error('All send methods failed');
+
     } catch (error) {
       this.logger.error('Failed to send message', {
         reservationId,
-        error: error.message
+        error: error.message,
+        statusCode: error.response?.status,
+        responseData: error.response?.data
       });
       throw error;
     }
