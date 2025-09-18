@@ -28,8 +28,13 @@ class WebhookDto {
       return eventMappings[data.event] || data.event;
     }
     
+    // Hostaway specific format detection
+    if (data.isIncoming === 1 && (data.body || data.message)) {
+      return 'new message received';
+    }
+    
     // Try to infer event from data structure
-    if (data.message || data.data?.message) {
+    if (data.message || data.data?.message || data.body) {
       return 'new message received';
     }
     
@@ -68,15 +73,19 @@ class WebhookDto {
 
   extractMessageId(data) {
     return data.messageId || 
+           data.id ||  // Hostaway uses 'id' for message ID
            data.message_id || 
            data.data?.messageId || 
            data.data?.message_id ||
+           data.data?.id ||
            data.object?.messageId ||
-           data.object?.message_id;
+           data.object?.message_id ||
+           data.object?.id;
   }
 
   extractMessage(data) {
     return data.message || 
+           data.body ||  // Hostaway uses 'body' for message content
            data.data?.message || 
            data.object?.message ||
            data.text ||
@@ -93,7 +102,9 @@ class WebhookDto {
            data.object?.guest_id ||
            data.guestEmail ||
            data.data?.guestEmail ||
-           data.object?.guestEmail;
+           data.object?.guestEmail ||
+           // For Hostaway, we can use reservationId as fallback for guestId
+           (data.reservationId ? `guest-${data.reservationId}` : null);
   }
 
   extractListingMapId(data) {
@@ -120,7 +131,7 @@ class WebhookDto {
         errors.push('reservationId is required for message events');
       }
       if (!this.message) {
-        errors.push('message is required for message events');
+        errors.push('message content is required for message events');
       }
     }
 
