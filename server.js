@@ -234,7 +234,7 @@ class Server {
         this.startBackgroundTasks();
       });
 
-      // Handle server errors
+      // Handle server errors.
       this.server.on('error', (error) => {
         this.logger.error('Server error', { error: error.message });
         throw error;
