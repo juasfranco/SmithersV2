@@ -243,19 +243,80 @@ class HostawayService {
     }
   }
 
-  async sendMessage(reservationId, message) {
+  async sendMessage(reservationId, message, conversationId = null) {
     if (!this.initialized) {
       await this.initialize();
     }
 
     try {
-      // Try multiple endpoint formats as Hostaway API might have different endpoints
       let response = null;
       let lastError = null;
 
-      // Method 1: Try the standard reservation messages endpoint
+      // Method 1: If we have conversationId, use the conversations endpoint (PREFERRED)
+      if (conversationId) {
+        try {
+          this.logger.debug('Attempting to send via /conversations/{id}/messages', { 
+            reservationId, 
+            conversationId 
+          });
+          response = await this.client.post(`/conversations/${conversationId}/messages`, {
+            body: message,
+            isIncoming: 0,
+            sentUsingHostaway: 1
+          });
+          this.logger.debug('Message sent successfully via conversations endpoint', { 
+            reservationId, 
+            conversationId 
+          });
+          return response.result;
+        } catch (error) {
+          lastError = error;
+          this.logger.warn('Failed to send via conversations endpoint', {
+            reservationId,
+            conversationId,
+            error: error.message,
+            statusCode: error.response?.status
+          });
+        }
+      }
+
+      // Method 2: Try to find conversation from reservation and then send
+      if (!conversationId) {
+        try {
+          this.logger.debug('No conversationId provided, trying to find from reservation', { reservationId });
+          const conversations = await this.client.get(`/conversations?reservationId=${reservationId}&limit=1`);
+          
+          if (conversations.result && conversations.result.length > 0) {
+            const foundConversationId = conversations.result[0].id;
+            this.logger.debug('Found conversation for reservation', { 
+              reservationId, 
+              conversationId: foundConversationId 
+            });
+            
+            response = await this.client.post(`/conversations/${foundConversationId}/messages`, {
+              body: message,
+              isIncoming: 0,
+              sentUsingHostaway: 1
+            });
+            this.logger.debug('Message sent successfully via found conversation', { 
+              reservationId, 
+              conversationId: foundConversationId 
+            });
+            return response.result;
+          }
+        } catch (error) {
+          lastError = error;
+          this.logger.warn('Failed to find and send via conversation', {
+            reservationId,
+            error: error.message,
+            statusCode: error.response?.status
+          });
+        }
+      }
+
+      // Method 3: Legacy attempt with reservations endpoint (will likely fail)
       try {
-        this.logger.debug('Attempting to send via /reservations/{id}/messages', { reservationId });
+        this.logger.debug('Attempting legacy reservations endpoint', { reservationId });
         response = await this.client.post(`/reservations/${reservationId}/messages`, {
           message,
           type: 'host_to_guest'
@@ -271,32 +332,12 @@ class HostawayService {
         });
       }
 
-      // Method 2: Try with different payload structure
-      try {
-        this.logger.debug('Attempting to send with different payload structure', { reservationId });
-        response = await this.client.post(`/reservations/${reservationId}/messages`, {
-          body: message,
-          messageType: 'host_to_guest'
-        });
-        this.logger.debug('Message sent successfully with alternative payload', { reservationId });
-        return response.result;
-      } catch (error) {
-        lastError = error;
-        this.logger.warn('Failed to send with alternative payload', {
-          reservationId,
-          error: error.message,
-          statusCode: error.response?.status
-        });
-      }
-
-      // Method 3: Try the messages endpoint directly (if we have conversationId)
-      // This would require passing conversationId, but let's focus on the above first
-
       throw lastError || new Error('All send methods failed');
 
     } catch (error) {
       this.logger.error('Failed to send message', {
         reservationId,
+        conversationId,
         error: error.message,
         statusCode: error.response?.status,
         responseData: error.response?.data
@@ -306,13 +347,14 @@ class HostawayService {
   }
 
   // Alias method for backward compatibility and clearer naming
-  async sendMessageToGuest(reservationId, message) {
+  async sendMessageToGuest(reservationId, message, conversationId = null) {
     this.logger.info('Sending message to guest', {
       reservationId,
+      conversationId,
       messageLength: message?.length
     });
     
-    return await this.sendMessage(reservationId, message);
+    return await this.sendMessage(reservationId, message, conversationId);
   }
 
   async getConversationHistory(reservationId) {

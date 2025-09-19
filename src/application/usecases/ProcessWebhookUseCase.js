@@ -175,11 +175,12 @@ class ProcessWebhookUseCase {
         listingMapId: enrichedListingMapId,
         guestId: enrichedGuestId,
         reservationId,
+        conversationId,
         context
       });
 
       // 5. Send response through Hostaway
-      const sentMessage = await this.hostawayService.sendMessageToGuest(reservationId, responseResult.response);
+      const sentMessage = await this.hostawayService.sendMessageToGuest(reservationId, responseResult.response, conversationId);
 
       if (sentMessage) {
         // 6. Save agent response to conversation history

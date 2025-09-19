@@ -31,7 +31,7 @@ class GenerateResponseUseCase {
     this.logger = new SecureLogger();
   }
 
-  async execute({ guestId, reservationId, listingMapId, message }) {
+  async execute({ guestId, reservationId, conversationId, listingMapId, message }) {
     const startTime = Date.now();
     let response = null;
     let source = 'unknown';
@@ -235,7 +235,8 @@ class GenerateResponseUseCase {
       try {
         const sentMessage = await this.hostawayService.sendMessageToGuest(
           reservationId, 
-          response
+          response,
+          conversationId
         );
 
         this.logger.info('Response sent via Hostaway', {
