@@ -27,7 +27,7 @@ const ConversationSchema = new mongoose.Schema({
       metadata: {
         source: {
           type: String,
-          enum: ["listing", "faq", "fallback", "human"]
+          enum: ["listing", "faq", "fallback", "human", "technical-fallback", "ai-fallback", "listing-direct"]
         },
         detectedField: String,
         listingMapId: Number,

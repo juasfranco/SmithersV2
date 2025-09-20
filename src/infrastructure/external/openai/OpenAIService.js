@@ -97,7 +97,27 @@ Ejemplo:
 "La hora de check-out es a las 10:00 a.m. Gracias por su estancia y quedamos atentos a cualquier consulta."
     `;
 
-    return await this.ask(prompt);
+    try {
+      const response = await this.ask(prompt);
+      
+      // Retornar en el formato esperado por GenerateResponseUseCase
+      return {
+        response: response.trim(),
+        confidence: 0.8 // Alta confianza cuando tenemos datos específicos
+      };
+    } catch (error) {
+      this.logger.error('Error generating friendly response', { 
+        error: error.message, 
+        question, 
+        answer 
+      });
+      
+      // Fallback si falla el AI
+      return {
+        response: `Respecto a tu consulta: ${answer}`,
+        confidence: 0.6
+      };
+    }
   }
 
   async generateFallbackResponse(message, conversationHistory = [], context = null) {
