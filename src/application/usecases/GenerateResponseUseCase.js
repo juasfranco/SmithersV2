@@ -245,16 +245,8 @@ class GenerateResponseUseCase {
           source
         });
 
-        // Guardar el mensaje enviado en la conversación
-        await this.conversationRepository.addMessage({
-          conversationId: conversation?.id,
-          messageId: sentMessage.id,
-          content: response,
-          direction: 'host_to_guest',
-          source,
-          confidence,
-          timestamp: new Date()
-        });
+        // La conversación se guarda automáticamente en ProcessWebhookUseCase
+        // No es necesario guardarla aquí también
 
         return {
           response,
